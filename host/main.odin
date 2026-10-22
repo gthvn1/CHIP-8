@@ -5,7 +5,7 @@ import "core:fmt"
 import "core:os"
 import "core:time"
 
-Display_Proc :: proc()
+Display_Proc :: proc(counter: ^int)
 
 Game_API :: struct {
 	lib:     dynlib.Library,
@@ -100,12 +100,13 @@ run_forever :: proc(path: string) {
 	}
 
 	version := 1
+	counter := 0
 	game, game_loaded := load_game(path, version)
 	if !game_loaded {return}
 
 	// Invariant: game always contains the last library successfully loaded.
 	for {
-		game.display()
+		game.display(&counter)
 		time.sleep(1 * time.Second)
 		t := os.modification_time_by_path(path) or_continue
 		if t != last_modification {

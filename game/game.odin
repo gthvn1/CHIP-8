@@ -3,6 +3,7 @@ package game
 import "core:fmt"
 
 @(export)
-display :: proc() {
-	fmt.println("Hello, World!")
+display :: proc(counter: ^int) {
+	counter^ += 1
+	fmt.printfln("Counter: %d", counter^)
 }
