@@ -5,16 +5,18 @@ import "core:fmt"
 import "core:os"
 import "core:time"
 
-Init_Proc :: proc() -> (rawptr, bool)
-Deinit_Proc :: proc(ptr: rawptr)
-Display_Proc :: proc(ptr: rawptr)
+Init_Proc :: proc() -> rawptr
+Deinit_Proc :: proc(_: rawptr)
+OnReload_Proc :: proc(_: rawptr) -> rawptr
+Display_Proc :: proc(_: rawptr)
 
 Game_API :: struct {
-	lib:     dynlib.Library,
-	path:    string,
-	display: Display_Proc,
-	init:    Init_Proc,
-	deinit:  Deinit_Proc,
+	lib:       dynlib.Library,
+	path:      string,
+	display:   Display_Proc,
+	init:      Init_Proc,
+	deinit:    Deinit_Proc,
+	on_reload: OnReload_Proc,
 }
 
 load_game :: proc(lib_path: string, version: int) -> (api: Game_API, ok: bool) {
@@ -64,35 +66,43 @@ load_game :: proc(lib_path: string, version: int) -> (api: Game_API, ok: bool) {
 		dynlib.unload_library(lib)
 	}
 
-	sym_dis, sym_dis_found := dynlib.symbol_address(lib, "display")
-	if !sym_dis_found {
+	sym_display, sym_display_found := dynlib.symbol_address(lib, "display")
+	if !sym_display_found {
 		fmt.eprintln(dynlib.last_error())
 		return
 	}
 
-	sym_ini, sym_ini_found := dynlib.symbol_address(lib, "init")
-	if !sym_ini_found {
+	sym_init, sym_init_found := dynlib.symbol_address(lib, "init")
+	if !sym_init_found {
 		fmt.eprintln(dynlib.last_error())
 		return
 	}
 
-	sym_deini, sym_deini_found := dynlib.symbol_address(lib, "deinit")
-	if !sym_deini_found {
+	sym_deinit, sym_deinit_found := dynlib.symbol_address(lib, "deinit")
+	if !sym_deinit_found {
 		fmt.eprintln(dynlib.last_error())
 		return
 	}
 
-	fmt.printfln("The symbol %q was found at the address %v", "display", sym_dis)
-	fmt.printfln("The symbol %q was found at the address %v", "init", sym_ini)
-	fmt.printfln("The symbol %q was found at the address %v", "deinit", sym_deini)
+	sym_on_reload, sym_on_reload_found := dynlib.symbol_address(lib, "on_reload")
+	if !sym_on_reload_found {
+		fmt.eprintln(dynlib.last_error())
+		return
+	}
+
+	fmt.printfln("The symbol %q was found at the address %v", "display", sym_display)
+	fmt.printfln("The symbol %q was found at the address %v", "init", sym_init)
+	fmt.printfln("The symbol %q was found at the address %v", "deinit", sym_deinit)
+	fmt.printfln("The symbol %q was found at the address %v", "on_reload", sym_on_reload)
 
 	ok = true
 	api = {
-		lib     = lib,
-		path    = copy_path,
-		display = cast(Display_Proc)sym_dis,
-		init    = cast(Init_Proc)sym_ini,
-		deinit  = cast(Deinit_Proc)sym_deini,
+		lib       = lib,
+		path      = copy_path,
+		display   = cast(Display_Proc)sym_display,
+		init      = cast(Init_Proc)sym_init,
+		deinit    = cast(Deinit_Proc)sym_deinit,
+		on_reload = cast(OnReload_Proc)sym_on_reload,
 	}
 	return
 }
@@ -124,8 +134,9 @@ run_forever :: proc(path: string) {
 	game, game_loaded := load_game(path, version)
 	if !game_loaded {return}
 
-	state_ptr, state_ok := game.init()
-	if !state_ok {unload_game(game); return}
+	state_ptr := game.init()
+	if state_ptr == nil {unload_game(game); return}
+
 	fmt.printfln("Got ptr %p", state_ptr)
 	// Currently we cannot escape the loop so defer is never called. But we will have
 	// a clean end one day...
@@ -150,7 +161,21 @@ run_forever :: proc(path: string) {
 				continue
 			}
 
-			// The new library is successfully loaded so we can unload the old one
+			// Before unloaded game we need to check if the rawptr has changed...
+			new_state_ptr := new_game.on_reload(state_ptr)
+			if new_state_ptr == nil {
+				fmt.eprintln("Something weird happens with the new state, keep the old one")
+				unload_game(new_game)
+				continue
+			}
+
+			if new_state_ptr != state_ptr {
+				fmt.eprintln("Cleanup old state, a new one has been initialized")
+				game.deinit(state_ptr)
+				state_ptr = new_state_ptr
+			}
+
+			// The new library is successfully loaded, state is updated so we can unload the old one
 			unload_game(game)
 
 			// Even if unload failed we have the new one that is successfully loaded so use it
