@@ -5,12 +5,16 @@ import "core:fmt"
 import "core:os"
 import "core:time"
 
-Display_Proc :: proc(counter: ^int)
+Init_Proc :: proc() -> (rawptr, bool)
+Deinit_Proc :: proc(ptr: rawptr)
+Display_Proc :: proc(ptr: rawptr)
 
 Game_API :: struct {
 	lib:     dynlib.Library,
 	path:    string,
 	display: Display_Proc,
+	init:    Init_Proc,
+	deinit:  Deinit_Proc,
 }
 
 load_game :: proc(lib_path: string, version: int) -> (api: Game_API, ok: bool) {
@@ -60,18 +64,35 @@ load_game :: proc(lib_path: string, version: int) -> (api: Game_API, ok: bool) {
 		dynlib.unload_library(lib)
 	}
 
-	sym, sym_found := dynlib.symbol_address(lib, "display")
-	if !sym_found {
+	sym_dis, sym_dis_found := dynlib.symbol_address(lib, "display")
+	if !sym_dis_found {
 		fmt.eprintln(dynlib.last_error())
 		return
 	}
 
-	fmt.printfln("The symbol %q was found at the address %v", "display", sym)
+	sym_ini, sym_ini_found := dynlib.symbol_address(lib, "init")
+	if !sym_ini_found {
+		fmt.eprintln(dynlib.last_error())
+		return
+	}
+
+	sym_deini, sym_deini_found := dynlib.symbol_address(lib, "deinit")
+	if !sym_deini_found {
+		fmt.eprintln(dynlib.last_error())
+		return
+	}
+
+	fmt.printfln("The symbol %q was found at the address %v", "display", sym_dis)
+	fmt.printfln("The symbol %q was found at the address %v", "init", sym_ini)
+	fmt.printfln("The symbol %q was found at the address %v", "deinit", sym_deini)
+
 	ok = true
 	api = {
 		lib     = lib,
 		path    = copy_path,
-		display = cast(Display_Proc)sym,
+		display = cast(Display_Proc)sym_dis,
+		init    = cast(Init_Proc)sym_ini,
+		deinit  = cast(Deinit_Proc)sym_deini,
 	}
 	return
 }
@@ -100,13 +121,19 @@ run_forever :: proc(path: string) {
 	}
 
 	version := 1
-	counter := 0
 	game, game_loaded := load_game(path, version)
 	if !game_loaded {return}
 
+	state_ptr, state_ok := game.init()
+	if !state_ok {unload_game(game); return}
+	fmt.printfln("Got ptr %p", state_ptr)
+	// Currently we cannot escape the loop so defer is never called. But we will have
+	// a clean end one day...
+	defer game.deinit(state_ptr)
+
 	// Invariant: game always contains the last library successfully loaded.
 	for {
-		game.display(&counter)
+		game.display(state_ptr)
 		time.sleep(1 * time.Second)
 		t := os.modification_time_by_path(path) or_continue
 		if t != last_modification {
