@@ -28,9 +28,13 @@ esac
 #
 # nm -D game.so | grep display
 # nm -D host | grep display
-# readelf -d host | grep NEEDED
 # nm -D /nix/store/...-glibc-2.44-57/lib/libc.so.6 | grep ' dlopen'
+# 
+# readelf -d host | grep NEEDED
 # objdump -d host | grep -A3 '<dlopen@plt>'
+# 
 # LD_DEBUG=bindings ./host 2>&1 | grep dlopen
 # grep game /proc/$(pidof host)/maps
 # ls -i game.so
+# 
+# gdb -p $(pidof host)

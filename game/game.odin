@@ -4,5 +4,5 @@ import "core:fmt"
 
 @(export)
 display :: proc() {
-	fmt.println("Hello, World!!!")
+	fmt.println("Hello, World!")
 }
