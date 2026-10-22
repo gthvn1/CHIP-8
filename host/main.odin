@@ -148,7 +148,16 @@ run_forever :: proc(path: string) {
 		time.sleep(1 * time.Second)
 		t := os.modification_time_by_path(path) or_continue
 		if t != last_modification {
-			fmt.printfln("%s has been modified", path)
+			// NOTE
+			// A new version of the library is available. We try to load the new version before
+			// unloading the old one for two reasons.
+			// - The first reason is that if the load fails we keep the old version
+			// - The second is because raylib is a dependency of our game.so. Raylib is unloaded
+			//   only when no loaded copy of game.so needs it anymore.
+			//   By loading the new game.so first we ensure that raylib is always used and loaded.
+			//   Of course it means that raylib is not statically linked but dynamically linked.
+			fmt.printfln("A new version of %s is available", path)
+
 			// In any case we update the last modification. If it fails we will
 			// retry on the next compilation.
 			last_modification = t

@@ -2,6 +2,10 @@ package game
 
 import "core:fmt"
 
+// dynamically linked, vendor:raylib uses system:raylib
+// See $(odin root)/vendor/raylib/raylib.odin:102
+import rl "vendor:raylib"
+
 State :: struct {
 	// The size of the struct *MUST* stay first. It is used by on_reload to
 	// know if the struct has changed (it doesn't detect new order, only add/del fields)
@@ -23,8 +27,13 @@ new_state :: proc(counter := 3) -> rawptr {
 	return s
 }
 
+// raylib is loaded once because it is dynamically linked. If it were statically linked
+// into "game.so" it would be reloaded with game.so with its own global variables. That is
+// not what we want. InitWindow is called only here, once: the window lives in libraylib.so
+// and survives reloads.
 @(export)
 init :: proc() -> rawptr {
+	rl.InitWindow(800, 600, "CHIP-8 Emulator")
 	return new_state()
 }
 
@@ -49,5 +58,12 @@ on_reload :: proc(state: rawptr) -> rawptr {
 display :: proc(state: rawptr) {
 	s := cast(^State)state
 	s.counter += 1
-	fmt.printfln("Counter: %d", s.counter)
+
+	text := fmt.caprintf("Counter: %05d", s.counter)
+	defer delete(text)
+
+	rl.BeginDrawing()
+	rl.ClearBackground(rl.BLACK)
+	rl.DrawText(text, 200, 200, 20, rl.ORANGE)
+	rl.EndDrawing()
 }
