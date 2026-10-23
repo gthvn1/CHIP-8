@@ -228,7 +228,7 @@ hot_reload :: proc(emu: ^Emulator_State, path: string) {
 
 main_loop :: proc(path: string) -> bool {
 	// Emulator expects an initialized window. So start by initializing the raylib window.
-	rl.InitWindow(800, 600, "CHIP-8 Emulator")
+	rl.InitWindow(1280, 720, "CHIP-8 Emulator")
 	defer rl.CloseWindow()
 
 	// init emulator will load the chip8.so. So we need to defer the unload now because
