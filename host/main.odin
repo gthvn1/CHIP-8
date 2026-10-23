@@ -161,7 +161,7 @@ init_game_state :: proc(path: string) -> (state: Game_State, ok: bool) {
 	return
 }
 
-main_loop :: proc(path: string) {
+main_loop :: proc(path: string) -> bool {
 	// Game expects a initialized window. So start by initializing the raylib window.
 	rl.InitWindow(800, 600, "CHIP-8 Emulator")
 	defer rl.CloseWindow()
@@ -170,8 +170,7 @@ main_loop :: proc(path: string) {
 	// defer are executed in reverse order.
 	game_state, ok := init_game_state(path)
 	if !ok {
-		fmt.eprintln("Failed to initialize game state")
-		return
+		return false
 	}
 	defer unload_game(game_state.api)
 
@@ -236,8 +235,16 @@ main_loop :: proc(path: string) {
 		rl.EndDrawing()
 	}
 
+	return true
 }
 
 main :: proc() {
-	main_loop("./temp/game.so")
+	if len(os.args) != 2 {
+		fmt.eprintfln("usage: %s library", os.args[0])
+		fmt.eprintln("  library: path of the shared library to hot reload (e.g. ./temp/game.so)")
+		os.exit(1)
+	}
+	if !main_loop(os.args[1]) {
+		os.exit(1)
+	}
 }
