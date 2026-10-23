@@ -65,7 +65,7 @@ on_reload :: proc(state: rawptr) -> rawptr {
 }
 
 @(export)
-display :: proc(state: rawptr) {
+render :: proc(state: rawptr) {
 	s := cast(^State)state
 	s.counter += 1
 

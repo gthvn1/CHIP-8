@@ -12,12 +12,19 @@ import rl "vendor:raylib"
 Init_Proc :: proc() -> rawptr
 Deinit_Proc :: proc(_: rawptr)
 OnReload_Proc :: proc(_: rawptr) -> rawptr
-Display_Proc :: proc(_: rawptr)
+Render_Proc :: proc(_: rawptr)
+
+Game_State :: struct {
+	build:   time.Time,
+	ptr:     rawptr,
+	api:     Game_API,
+	version: int,
+}
 
 Game_API :: struct {
 	lib:       dynlib.Library,
 	path:      string,
-	display:   Display_Proc,
+	render:    Render_Proc,
 	init:      Init_Proc,
 	deinit:    Deinit_Proc,
 	on_reload: OnReload_Proc,
@@ -70,12 +77,6 @@ load_game :: proc(lib_path: string, version: int) -> (api: Game_API, ok: bool) {
 		dynlib.unload_library(lib)
 	}
 
-	sym_display, sym_display_found := dynlib.symbol_address(lib, "display")
-	if !sym_display_found {
-		fmt.eprintln(dynlib.last_error())
-		return
-	}
-
 	sym_init, sym_init_found := dynlib.symbol_address(lib, "init")
 	if !sym_init_found {
 		fmt.eprintln(dynlib.last_error())
@@ -94,19 +95,25 @@ load_game :: proc(lib_path: string, version: int) -> (api: Game_API, ok: bool) {
 		return
 	}
 
-	fmt.printfln("The symbol %q was found at the address %v", "display", sym_display)
+	sym_render, sym_render_found := dynlib.symbol_address(lib, "render")
+	if !sym_render_found {
+		fmt.eprintln(dynlib.last_error())
+		return
+	}
+
 	fmt.printfln("The symbol %q was found at the address %v", "init", sym_init)
 	fmt.printfln("The symbol %q was found at the address %v", "deinit", sym_deinit)
 	fmt.printfln("The symbol %q was found at the address %v", "on_reload", sym_on_reload)
+	fmt.printfln("The symbol %q was found at the address %v", "render", sym_render)
 
 	ok = true
 	api = {
 		lib       = lib,
 		path      = copy_path,
-		display   = cast(Display_Proc)sym_display,
 		init      = cast(Init_Proc)sym_init,
 		deinit    = cast(Deinit_Proc)sym_deinit,
 		on_reload = cast(OnReload_Proc)sym_on_reload,
+		render    = cast(Render_Proc)sym_render,
 	}
 	return
 }
@@ -123,36 +130,60 @@ unload_game :: proc(game: Game_API) {
 	delete(game.path)
 }
 
-main_loop :: proc(path: string) {
-	last_modification, modif_err := os.modification_time_by_path(path)
-	if modif_err != nil {
-		fmt.eprintfln(
-			"Failed to get modification date for %s: %s",
-			path,
-			os.error_string(modif_err),
-		)
+init_game_state :: proc(path: string) -> (state: Game_State, ok: bool) {
+	last_build, err := os.modification_time_by_path(path)
+	if err != nil {
+		fmt.eprintfln("Failed to get modification date for %s: %s", path, os.error_string(err))
 		return
 	}
 
-	version := 1
-	game, game_loaded := load_game(path, version)
-	if !game_loaded {return}
+	game, game_ok := load_game(path, 1)
+	if !game_ok {
+		fmt.eprintln("Failed to load game")
+		return
+	}
 
 	state_ptr := game.init()
-	if state_ptr == nil {unload_game(game); return}
+	if state_ptr == nil {
+		fmt.eprintln("Failed to get state")
+		unload_game(game)
+		return
+	}
 
-	fmt.printfln("Got ptr %p", state_ptr)
-	// Currently we cannot escape the loop so defer is never called. But we will have
-	// a clean end one day...
-	defer game.deinit(state_ptr)
+	ok = true
+	state = Game_State {
+		build   = last_build,
+		api     = game,
+		ptr     = state_ptr,
+		version = 1,
+	}
 
+	return
+}
+
+main_loop :: proc(path: string) {
+	// Game expects a initialized window. So start by initializing the raylib window.
 	rl.InitWindow(800, 600, "CHIP-8 Emulator")
 	defer rl.CloseWindow()
+
+	// init game will load the game.so. So we need to defer the unload now because
+	// defer are executed in reverse order.
+	game_state, ok := init_game_state(path)
+	if !ok {
+		fmt.eprintln("Failed to initialize game state")
+		return
+	}
+	defer unload_game(game_state.api)
+
+	fmt.printfln("Got ptr %p", game_state.ptr)
+	// Our invariant is that game is always that last library so game.deinit will
+	// be called with a successfully loaded game.
+	defer game_state.api.deinit(game_state.ptr)
 
 	// Invariant: game always contains the last library successfully loaded.
 	for !rl.WindowShouldClose() {
 		t := os.modification_time_by_path(path) or_continue
-		if t != last_modification {
+		if t != game_state.build {
 			// NOTE
 			// A new version of the library is available. We try to load the new version before
 			// unloading the old one for two reasons.
@@ -166,11 +197,11 @@ main_loop :: proc(path: string) {
 			fmt.printfln("A new version of %s is available", path)
 
 			// In any case we update the last modification. If it fails we will
-			// retry on the next compilation.
-			last_modification = t
+			// retry on the next compilation and it prevents to loop on failure build.
+			game_state.build = t
 
 			// Load a new version of the library
-			version += 1
+			version := game_state.version + 1
 			new_game, new_game_loaded := load_game(path, version)
 			if !new_game_loaded {
 				fmt.eprintln("failed to load the new library, keep the old one")
@@ -178,30 +209,33 @@ main_loop :: proc(path: string) {
 			}
 
 			// Before unloaded game we need to check if the rawptr has changed...
-			new_state_ptr := new_game.on_reload(state_ptr)
-			if new_state_ptr == nil {
+			new_ptr := new_game.on_reload(game_state.ptr)
+			if new_ptr == nil {
 				fmt.eprintln("Something weird happens with the new state, keep the old one")
 				unload_game(new_game)
 				continue
 			}
 
-			if new_state_ptr != state_ptr {
+			if new_ptr != game_state.ptr {
 				fmt.eprintln("Cleanup old state, a new one has been initialized")
-				game.deinit(state_ptr)
-				state_ptr = new_state_ptr
+				game_state.api.deinit(game_state.ptr)
 			}
 
 			// The new library is successfully loaded, state is updated so we can unload the old one
-			unload_game(game)
+			unload_game(game_state.api)
 
-			// Even if unload failed we have the new one that is successfully loaded so use it
-			game = new_game
+			// Even if unload failed we have the new one that is successfully loaded so use it.
+			// host_state.build is already correct here.
+			game_state.version = version
+			game_state.api = new_game
+			game_state.ptr = new_ptr
 		}
 
 		rl.BeginDrawing()
-		game.display(state_ptr)
+		game_state.api.render(game_state.ptr)
 		rl.EndDrawing()
 	}
+
 }
 
 main :: proc() {
