@@ -12,6 +12,7 @@ import rl "vendor:raylib"
 Init_Proc :: proc() -> rawptr
 Deinit_Proc :: proc(_: rawptr)
 OnReload_Proc :: proc(_: rawptr) -> rawptr
+Update_Proc :: proc(_: rawptr)
 Render_Proc :: proc(_: rawptr)
 
 Emulator_State :: struct {
@@ -24,10 +25,11 @@ Emulator_State :: struct {
 Emulator_API :: struct {
 	lib:       dynlib.Library,
 	path:      string,
-	render:    Render_Proc,
 	init:      Init_Proc,
 	deinit:    Deinit_Proc,
 	on_reload: OnReload_Proc,
+	update:    Update_Proc,
+	render:    Render_Proc,
 }
 
 load_emulator :: proc(lib_path: string, version: int) -> (api: Emulator_API, ok: bool) {
@@ -94,6 +96,12 @@ load_emulator :: proc(lib_path: string, version: int) -> (api: Emulator_API, ok:
 		return
 	}
 
+	sym_update, sym_update_found := dynlib.symbol_address(lib, "update")
+	if !sym_update_found {
+		fmt.eprintln(dynlib.last_error())
+		return
+	}
+
 	sym_render, sym_render_found := dynlib.symbol_address(lib, "render")
 	if !sym_render_found {
 		fmt.eprintln(dynlib.last_error())
@@ -103,6 +111,7 @@ load_emulator :: proc(lib_path: string, version: int) -> (api: Emulator_API, ok:
 	fmt.printfln("The symbol %q was found at the address %v", "init", sym_init)
 	fmt.printfln("The symbol %q was found at the address %v", "deinit", sym_deinit)
 	fmt.printfln("The symbol %q was found at the address %v", "on_reload", sym_on_reload)
+	fmt.printfln("The symbol %q was found at the address %v", "update", sym_update)
 	fmt.printfln("The symbol %q was found at the address %v", "render", sym_render)
 
 	ok = true
@@ -112,6 +121,7 @@ load_emulator :: proc(lib_path: string, version: int) -> (api: Emulator_API, ok:
 		init      = cast(Init_Proc)sym_init,
 		deinit    = cast(Deinit_Proc)sym_deinit,
 		on_reload = cast(OnReload_Proc)sym_on_reload,
+		update    = cast(Update_Proc)sym_update,
 		render    = cast(Render_Proc)sym_render,
 	}
 	return
@@ -240,6 +250,8 @@ main_loop :: proc(path: string) -> bool {
 	// Invariant: emu always contains the last library successfully loaded.
 	for !rl.WindowShouldClose() {
 		hot_reload(&emu, path)
+
+		emu.api.update(emu.ptr)
 
 		rl.BeginDrawing()
 		emu.api.render(emu.ptr)

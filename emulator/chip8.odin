@@ -65,9 +65,14 @@ on_reload :: proc(state: rawptr) -> rawptr {
 }
 
 @(export)
-render :: proc(state: rawptr) {
+update :: proc(state: rawptr) {
 	s := cast(^State)state
 	s.counter += 1
+}
+
+@(export)
+render :: proc(state: rawptr) {
+	s := cast(^State)state
 
 	text := fmt.caprintf("Counter: %05d", s.counter)
 	defer delete(text)
