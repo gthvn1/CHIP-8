@@ -16,8 +16,15 @@ State :: struct {
 	counter: int,
 }
 
-// Using a default value for counter is just for debugging purpose, on_reload use a different
-// one.
+// Using a default value for counter is just for debugging purpose.
+clear_state :: proc(state: ^State, counter := 0) {
+	state^ = State {
+		magic   = MAGIC,
+		size    = size_of(State),
+		counter = counter,
+	}
+}
+
 new_state :: proc(counter := 3) -> rawptr {
 	s, err := new(State)
 	if err != .None {
@@ -25,9 +32,7 @@ new_state :: proc(counter := 3) -> rawptr {
 		return nil
 	}
 
-	s.magic = MAGIC
-	s.size = size_of(State)
-	s.counter = counter
+	clear_state(s, counter)
 	return s
 }
 
@@ -63,7 +68,12 @@ on_reload :: proc(state: rawptr) -> rawptr {
 @(export)
 update :: proc(state: rawptr) {
 	s := cast(^State)state
-	s.counter += 1
+
+	if rl.IsKeyPressed(.R) {
+		clear_state(s)
+	} else {
+		s.counter += 1
+	}
 }
 
 @(export)
