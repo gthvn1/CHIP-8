@@ -31,10 +31,6 @@ new_state :: proc(counter := 3) -> rawptr {
 	return s
 }
 
-// raylib is loaded once because it is dynamically linked. If it were statically linked
-// into "chip8.so" it would be reloaded with chip8.so with its own global variables. That is
-// not what we want. InitWindow is called only here, once: the window lives in libraylib.so
-// and survives reloads.
 @(export)
 init :: proc() -> rawptr {
 	return new_state()
@@ -50,8 +46,8 @@ on_reload :: proc(state: rawptr) -> rawptr {
 	s := cast(^State)state
 
 	if s.magic != MAGIC {
-		fmt.eprintln("Bad magic: expected %d got %d", MAGIC, s.magic)
-		return state
+		fmt.eprintfln("Bad magic: expected %x got %x", MAGIC, s.magic)
+		return nil
 	}
 
 	if s.size == size_of(State) {

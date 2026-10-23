@@ -16,10 +16,10 @@ Update_Proc :: proc(_: rawptr)
 Render_Proc :: proc(_: rawptr)
 
 Emulator_State :: struct {
-	last_update: time.Time,
-	ptr:         rawptr,
-	api:         Emulator_API,
-	version:     int,
+	mtime:   time.Time,
+	ptr:     rawptr,
+	api:     Emulator_API,
+	version: int,
 }
 
 Emulator_API :: struct {
@@ -161,23 +161,23 @@ init_emulator_state :: proc(path: string) -> (state: Emulator_State, ok: bool) {
 
 	ok = true
 	state = Emulator_State {
-		last_update = last_build,
-		api         = emu,
-		ptr         = state_ptr,
-		version     = 1,
+		mtime   = last_build,
+		api     = emu,
+		ptr     = state_ptr,
+		version = 1,
 	}
 
 	return
 }
 
-hot_reload :: proc(emup: ^Emulator_State, path: string) {
+hot_reload :: proc(emu: ^Emulator_State, path: string) {
 	t, err := os.modification_time_by_path(path)
 	if err != nil {
 		fmt.eprintln(os.error_string(err))
 		return
 	}
 
-	if t == emup.last_update {return}
+	if t == emu.mtime {return}
 
 	// NOTE
 	// A new version of the library is available. We try to load the new version before
@@ -188,15 +188,15 @@ hot_reload :: proc(emup: ^Emulator_State, path: string) {
 	//   By loading the new chip8.so first we ensure that raylib is always used and loaded.
 	//   Of course it means that raylib is not statically linked but dynamically linked.
 	//   Updated: as we are now using raylib from host the second point is not true because
-	//            it is always use but keep the remark as a remainder.
+	//            it is always used but keep the remark as a reminder.
 	fmt.printfln("A new version of %s is available", path)
 
 	// In any case we update the last modification. If it fails we will
 	// retry on the next compilation and it prevents to loop on build failure.
-	emup.last_update = t
+	emu.mtime = t
 
 	// Load a new version of the library
-	version := emup.version + 1
+	version := emu.version + 1
 	new_emu, new_emu_loaded := load_emulator(path, version)
 	if !new_emu_loaded {
 		fmt.eprintln("failed to load the new library, keep the old one")
@@ -204,26 +204,26 @@ hot_reload :: proc(emup: ^Emulator_State, path: string) {
 	}
 
 	// Before unloaded the old emulator we need to check if the rawptr has changed...
-	new_ptr := new_emu.on_reload(emup.ptr)
+	new_ptr := new_emu.on_reload(emu.ptr)
 	if new_ptr == nil {
-		fmt.eprintln("Something weird happens with the new state, keep the old one")
+		fmt.eprintln("Keeping old emulator")
 		unload_emulator(new_emu)
 		return
 	}
 
-	if new_ptr != emup.ptr {
+	if new_ptr != emu.ptr {
 		fmt.eprintln("Cleanup old state, a new one has been initialized")
-		emup.api.deinit(emup.ptr)
+		emu.api.deinit(emu.ptr)
 	}
 
 	// The new library is successfully loaded, state is updated so we can unload the old one
-	unload_emulator(emup.api)
+	unload_emulator(emu.api)
 
 	// Even if unload failed we have the new one that is successfully loaded so use it.
-	// "last_update" is already correct here.
-	emup.version = version
-	emup.api = new_emu
-	emup.ptr = new_ptr
+	// "mtime" is already correct here.
+	emu.version = version
+	emu.api = new_emu
+	emu.ptr = new_ptr
 }
 
 main_loop :: proc(path: string) -> bool {
@@ -240,7 +240,7 @@ main_loop :: proc(path: string) -> bool {
 	defer unload_emulator(emu.api)
 
 	fmt.printfln("Got ptr %p", emu.ptr)
-	// Our invariant is that emulator is always that last library so emu.deinit will
+	// Our invariant is that emulator is always the last library so emu.deinit will
 	// be called with a successfully loaded emulator.
 	defer emu.api.deinit(emu.ptr)
 
