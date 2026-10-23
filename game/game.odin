@@ -37,7 +37,6 @@ new_state :: proc(counter := 3) -> rawptr {
 // and survives reloads.
 @(export)
 init :: proc() -> rawptr {
-	rl.InitWindow(800, 600, "CHIP-8 Emulator")
 	return new_state()
 }
 
@@ -73,8 +72,6 @@ display :: proc(state: rawptr) {
 	text := fmt.caprintf("Counter: %05d", s.counter)
 	defer delete(text)
 
-	rl.BeginDrawing()
 	rl.ClearBackground(rl.BLACK)
 	rl.DrawText(text, 200, 200, 20, rl.ORANGE)
-	rl.EndDrawing()
 }

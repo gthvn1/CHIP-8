@@ -5,6 +5,10 @@ import "core:fmt"
 import "core:os"
 import "core:time"
 
+// dynamically linked, vendor:raylib uses system:raylib
+// See $(odin root)/vendor/raylib/raylib.odin:102
+import rl "vendor:raylib"
+
 Init_Proc :: proc() -> rawptr
 Deinit_Proc :: proc(_: rawptr)
 OnReload_Proc :: proc(_: rawptr) -> rawptr
@@ -119,7 +123,7 @@ unload_game :: proc(game: Game_API) {
 	delete(game.path)
 }
 
-run_forever :: proc(path: string) {
+main_loop :: proc(path: string) {
 	last_modification, modif_err := os.modification_time_by_path(path)
 	if modif_err != nil {
 		fmt.eprintfln(
@@ -142,10 +146,11 @@ run_forever :: proc(path: string) {
 	// a clean end one day...
 	defer game.deinit(state_ptr)
 
+	rl.InitWindow(800, 600, "CHIP-8 Emulator")
+	defer rl.CloseWindow()
+
 	// Invariant: game always contains the last library successfully loaded.
-	for {
-		game.display(state_ptr)
-		time.sleep(1 * time.Second)
+	for !rl.WindowShouldClose() {
 		t := os.modification_time_by_path(path) or_continue
 		if t != last_modification {
 			// NOTE
@@ -156,6 +161,8 @@ run_forever :: proc(path: string) {
 			//   only when no loaded copy of game.so needs it anymore.
 			//   By loading the new game.so first we ensure that raylib is always used and loaded.
 			//   Of course it means that raylib is not statically linked but dynamically linked.
+			//   Updated: as we are now using raylib from host the second point is not true because
+			//            it is always use but keep the remark as a remainder.
 			fmt.printfln("A new version of %s is available", path)
 
 			// In any case we update the last modification. If it fails we will
@@ -190,10 +197,13 @@ run_forever :: proc(path: string) {
 			// Even if unload failed we have the new one that is successfully loaded so use it
 			game = new_game
 		}
+
+		rl.BeginDrawing()
+		game.display(state_ptr)
+		rl.EndDrawing()
 	}
 }
 
 main :: proc() {
-	run_forever("./temp/game.so")
-	os.exit(1)
+	main_loop("./temp/game.so")
 }
