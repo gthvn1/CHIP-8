@@ -11,7 +11,7 @@ import rl "vendor:raylib"
 
 Init_Proc :: proc() -> rawptr
 Deinit_Proc :: proc(_: rawptr)
-OnReload_Proc :: proc(_: rawptr) -> rawptr
+On_Reload_Proc :: proc(_: rawptr) -> rawptr
 Update_Proc :: proc(_: rawptr)
 Render_Proc :: proc(_: rawptr)
 
@@ -27,7 +27,7 @@ Emulator_API :: struct {
 	path:      string,
 	init:      Init_Proc,
 	deinit:    Deinit_Proc,
-	on_reload: OnReload_Proc,
+	on_reload: On_Reload_Proc,
 	update:    Update_Proc,
 	render:    Render_Proc,
 }
@@ -120,7 +120,7 @@ load_emulator :: proc(lib_path: string, version: int) -> (api: Emulator_API, ok:
 		path      = copy_path,
 		init      = cast(Init_Proc)sym_init,
 		deinit    = cast(Deinit_Proc)sym_deinit,
-		on_reload = cast(OnReload_Proc)sym_on_reload,
+		on_reload = cast(On_Reload_Proc)sym_on_reload,
 		update    = cast(Update_Proc)sym_update,
 		render    = cast(Render_Proc)sym_render,
 	}
@@ -140,7 +140,7 @@ unload_emulator :: proc(emu: Emulator_API) {
 }
 
 init_emulator_state :: proc(path: string) -> (state: Emulator_State, ok: bool) {
-	last_build, err := os.modification_time_by_path(path)
+	mtime, err := os.modification_time_by_path(path)
 	if err != nil {
 		fmt.eprintfln("Failed to get modification date for %s: %s", path, os.error_string(err))
 		return
@@ -161,7 +161,7 @@ init_emulator_state :: proc(path: string) -> (state: Emulator_State, ok: bool) {
 
 	ok = true
 	state = Emulator_State {
-		mtime   = last_build,
+		mtime   = mtime,
 		api     = emu,
 		ptr     = state_ptr,
 		version = 1,
@@ -203,7 +203,7 @@ hot_reload :: proc(emu: ^Emulator_State, path: string) {
 		return
 	}
 
-	// Before unloaded the old emulator we need to check if the rawptr has changed...
+	// Before unloading the old emulator we need to check if the rawptr has changed...
 	new_ptr := new_emu.on_reload(emu.ptr)
 	if new_ptr == nil {
 		fmt.eprintln("Keeping old emulator")
@@ -227,7 +227,7 @@ hot_reload :: proc(emu: ^Emulator_State, path: string) {
 }
 
 main_loop :: proc(path: string) -> bool {
-	// Emulator expects a initialized window. So start by initializing the raylib window.
+	// Emulator expects an initialized window. So start by initializing the raylib window.
 	rl.InitWindow(800, 600, "CHIP-8 Emulator")
 	defer rl.CloseWindow()
 
