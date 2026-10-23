@@ -179,6 +179,9 @@ main_loop :: proc(path: string) -> bool {
 	// be called with a successfully loaded game.
 	defer game_state.api.deinit(game_state.ptr)
 
+	// Set our loop to run at 60 frames per second
+	rl.SetTargetFPS(60)
+
 	// Invariant: game always contains the last library successfully loaded.
 	for !rl.WindowShouldClose() {
 		t := os.modification_time_by_path(path) or_continue
