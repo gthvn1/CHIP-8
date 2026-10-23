@@ -6,9 +6,12 @@ import "core:fmt"
 // See $(odin root)/vendor/raylib/raylib.odin:102
 import rl "vendor:raylib"
 
+MAGIC :: 0xDECAFBAD
+
 State :: struct {
-	// The size of the struct *MUST* stay first. It is used by on_reload to
+	// The magic and the size of the struct *MUST* stay first. It is used by on_reload to
 	// know if the struct has changed (it doesn't detect new order, only add/del fields)
+	magic:   int,
 	size:    int,
 	counter: int,
 }
@@ -22,6 +25,7 @@ new_state :: proc(counter := 3) -> rawptr {
 		return nil
 	}
 
+	s.magic = MAGIC
 	s.size = size_of(State)
 	s.counter = counter
 	return s
@@ -45,13 +49,20 @@ deinit :: proc(ptr: rawptr) {
 @(export)
 on_reload :: proc(state: rawptr) -> rawptr {
 	s := cast(^State)state
-	if s.size != size_of(State) {
-		// The struct has been modified. We need to return a new pointer.
-		// The old one will be freed by the caller.
-		return new_state(counter = 42)
+
+	if s.magic != MAGIC {
+		fmt.eprintln("Bad magic: expected %d got %d", MAGIC, s.magic)
+		return state
 	}
 
-	return state
+	if s.size == size_of(State) {
+		// Nothing to do (remember that we only detect new or removed fields).
+		return state
+	}
+
+	// The struct has been modified. We need to return a new pointer.
+	// The old one will be freed by the caller.
+	return new_state(counter = 42)
 }
 
 @(export)
