@@ -32,7 +32,7 @@ Emulator_API :: struct {
 	render:    Render_Proc,
 }
 
-load_emulator :: proc(lib_path: string, version: int) -> (api: Emulator_API, ok: bool) {
+load_api :: proc(lib_path: string, version: int) -> (api: Emulator_API, ok: bool) {
 	// man dlopen: If the same shared object is opened again with dlopen(),
 	// the same object handle is returned. That is why we are using a unique
 	// name.
@@ -127,16 +127,16 @@ load_emulator :: proc(lib_path: string, version: int) -> (api: Emulator_API, ok:
 	return
 }
 
-unload_emulator :: proc(emu: Emulator_API) {
-	if !dynlib.unload_library(emu.lib) {
+unload_api :: proc(api: Emulator_API) {
+	if !dynlib.unload_library(api.lib) {
 		fmt.eprintln(dynlib.last_error())
 	}
 
-	if err := os.remove(emu.path); err != nil {
-		fmt.eprintfln("Failed to remove %s: %s", emu.path, os.error_string(err))
+	if err := os.remove(api.path); err != nil {
+		fmt.eprintfln("Failed to remove %s: %s", api.path, os.error_string(err))
 	}
 
-	delete(emu.path)
+	delete(api.path)
 }
 
 init_emulator_state :: proc(path: string) -> (state: Emulator_State, ok: bool) {
@@ -146,23 +146,23 @@ init_emulator_state :: proc(path: string) -> (state: Emulator_State, ok: bool) {
 		return
 	}
 
-	emu, emu_loaded := load_emulator(path, 1)
+	emu_api, emu_loaded := load_api(path, 1)
 	if !emu_loaded {
 		fmt.eprintln("Failed to load CHIP-8")
 		return
 	}
 
-	state_ptr := emu.init()
+	state_ptr := emu_api.init()
 	if state_ptr == nil {
 		fmt.eprintln("Failed to get CHIP-8 state")
-		unload_emulator(emu)
+		unload_api(emu_api)
 		return
 	}
 
 	ok = true
 	state = Emulator_State {
 		mtime   = mtime,
-		api     = emu,
+		api     = emu_api,
 		ptr     = state_ptr,
 		version = 1,
 	}
@@ -197,17 +197,17 @@ hot_reload :: proc(emu: ^Emulator_State, path: string) {
 
 	// Load a new version of the library
 	version := emu.version + 1
-	new_emu, new_emu_loaded := load_emulator(path, version)
-	if !new_emu_loaded {
+	new_api, new_api_loaded := load_api(path, version)
+	if !new_api_loaded {
 		fmt.eprintln("failed to load the new library, keep the old one")
 		return
 	}
 
 	// Before unloading the old emulator we need to check if the rawptr has changed...
-	new_ptr := new_emu.on_reload(emu.ptr)
+	new_ptr := new_api.on_reload(emu.ptr)
 	if new_ptr == nil {
-		fmt.eprintln("Keeping old emulator")
-		unload_emulator(new_emu)
+		fmt.eprintln("Keeping the old version of the emulator")
+		unload_api(new_api)
 		return
 	}
 
@@ -217,12 +217,12 @@ hot_reload :: proc(emu: ^Emulator_State, path: string) {
 	}
 
 	// The new library is successfully loaded, state is updated so we can unload the old one
-	unload_emulator(emu.api)
+	unload_api(emu.api)
 
 	// Even if unload failed we have the new one that is successfully loaded so use it.
 	// "mtime" is already correct here.
 	emu.version = version
-	emu.api = new_emu
+	emu.api = new_api
 	emu.ptr = new_ptr
 }
 
@@ -237,7 +237,7 @@ main_loop :: proc(path: string) -> bool {
 	if !ok {
 		return false
 	}
-	defer unload_emulator(emu.api)
+	defer unload_api(emu.api)
 
 	fmt.printfln("Got ptr %p", emu.ptr)
 	// Our invariant is that emulator is always the last library so emu.deinit will
