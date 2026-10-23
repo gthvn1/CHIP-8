@@ -17,21 +17,22 @@ CODE_WIDTH :: 320
 State :: struct {
 	// The magic and the size of the struct *MUST* stay first. It is used by on_reload to
 	// know if the struct has changed (it doesn't detect new order, only add/del fields)
-	magic:    int,
-	size:     int,
+	magic:       int,
+	size:        int,
 	// CHIP-8 specific
-	memory:   [4096]u8,
-	v:        [16]u8, // Data registers (8-bits)
-	i:        u16, // Address register (16-bits), 12 bits really used
-	timer:    [2]u8, // two programmable timers (8-bits)
-	keypad:   [16]u8, // TODO: it is 4bits so do we keep it u8
-	graphics: [CHIP8_WIDTH * CHIP8_HEIGHT]u8, // TODO: 1 pixel is 1 bit so do we keep u8
-	stack:    [64]u8, // Original allocation was 48
-	pc:       int, // Program counter
+	memory:      [4096]u8,
+	v:           [16]u8, // Data registers (8-bits)
+	i:           u16, // Address register (16-bits), 12 bits really used
+	delay_timer: u8,
+	sound_timer: u8,
+	keypad:      [16]bool, // accept input from a 16-key keypad, true is pressed, false otherwise
+	graphics:    [CHIP8_WIDTH * CHIP8_HEIGHT]bool, // a pixel is on or off
+	stack:       [16]u16, // Used for address (12-bits) so use u16. We need to store at least 12 addr.
+	pc:          u16, // Program counter (store addresses)
+	sp:          uint, // Stack pointer, an index in the stack
 }
 
-// Using a default value for counter is just for debugging purpose.
-clear_state :: proc(state: ^State, counter := 0) {
+clear_state :: proc(state: ^State) {
 	state^ = State {
 		magic = MAGIC,
 		size  = size_of(State),
@@ -40,14 +41,14 @@ clear_state :: proc(state: ^State, counter := 0) {
 	}
 }
 
-new_state :: proc(counter := 3) -> rawptr {
+new_state :: proc() -> rawptr {
 	s, err := new(State)
 	if err != .None {
 		fmt.eprintln(err)
 		return nil
 	}
 
-	clear_state(s, counter)
+	clear_state(s)
 	return s
 }
 
@@ -77,7 +78,7 @@ on_reload :: proc(state: rawptr) -> rawptr {
 
 	// The struct has been modified. We need to return a new pointer.
 	// The old one will be freed by the caller.
-	return new_state(counter = 42)
+	return new_state()
 }
 
 @(export)
@@ -90,12 +91,11 @@ update :: proc(state: rawptr) {
 }
 
 Pen :: struct {
-	x_key:       i32,
-	x_val:       i32,
-	key_padding: i32,
-	y:           i32,
-	font_size:   i32,
-	line_h:      i32,
+	x_key:     i32,
+	x_val:     i32,
+	y:         i32,
+	font_size: i32,
+	line_h:    i32,
 }
 
 write_row :: proc(pen: ^Pen, key: cstring, val: cstring, color: rl.Color) {
@@ -108,26 +108,57 @@ blank_row :: proc(pen: ^Pen) {
 	pen.y += pen.line_h
 }
 
-// Position the pen at the upper left corner of rect with a small margin
-set_pen :: proc(pen: ^Pen, rect: rl.Rectangle, margin := 5) {
-	m := cast(i32)margin
-	pen^ = Pen {
-		x_key     = cast(i32)rect.x + m,
-		x_val     = cast(i32)rect.x + pen.key_padding + m,
-		y         = cast(i32)rect.y + m,
-		font_size = pen.font_size,
-		line_h    = pen.line_h,
+begin_panel :: proc(
+	panel: rl.Rectangle,
+	color: rl.Color,
+	thick: f32 = 2,
+	margin: i32 = 5,
+	key_padding: i32 = 100,
+	font_size: i32 = 20,
+	line_h: i32 = 26,
+	title: cstring = nil,
+) -> Pen {
+	// y=0   ┌─────────────────────┐
+	// y=5   │  Title              │  <- title : 20 px
+	// y=25  │─────────────────────│  <- line under the title
+	// y=30  │  PC     0x0200      │  <- pen starts here + margin
+	// y=56  │  I      0x0000      │
+	//       │  ...                │
+	//       └─────────────────────┘
+	line_pos: i32 = 0 // If there is no title
+
+	p_w := cast(i32)panel.width
+	p_x := cast(i32)panel.x
+	p_y := cast(i32)panel.y
+
+	rl.DrawRectangleLinesEx(panel, thick, color)
+
+	if title != nil {
+		line_pos = font_size + margin
+		title_space := (p_w - rl.MeasureText(title, font_size)) / 2
+		rl.DrawText(title, p_x + title_space, p_y + margin, font_size, color)
+		rl.DrawLine(p_x, p_y + line_pos, p_w + p_x, p_y + line_pos, color)
+	}
+
+	return Pen {
+		x_key = p_x + margin,
+		x_val = p_x + key_padding + margin,
+		y = p_y + line_pos + margin,
+		font_size = font_size,
+		line_h = line_h,
 	}
 }
 
 @(export)
 render :: proc(state: rawptr) {
+	s := cast(^State)state
+
 	rl.ClearBackground(rl.BLACK)
 
 	//  0          320                      960         1280
 	//  ┌───────────┬────────────────────────┬───────────┐ 0
 	//  │           │                        │           │
-	//  │  Code     │   Screen 64*32 (×10)   │  Machin   │
+	//  │  Code     │   Screen 64*32 (×10)   │  State    │
 	//  │  (desas.) │     640*320            │  V0..VF   │
 	//  │           │                        │  I, PC    │
 	//  │  320*720  ├────────────────────────┤  SP, pile │ 320
@@ -168,46 +199,38 @@ render :: proc(state: rawptr) {
 		height = cast(f32)screen_height,
 	}
 
-	rl.DrawRectangleLinesEx(code_panel, 2, rl.GRAY)
-	rl.DrawRectangleLinesEx(screen_panel, 2, rl.GRAY)
-	rl.DrawRectangleLinesEx(debug_panel, 2, rl.GRAY)
-	rl.DrawRectangleLinesEx(emu_state_panel, 2, rl.GRAY)
+	// Draw Code
+	begin_panel(code_panel, rl.GREEN, title = "Code")
+	begin_panel(screen_panel, rl.WHITE)
+	begin_panel(debug_panel, rl.RED, title = "Debug")
 
-	// Init a pen of size 20
-	pen := Pen {
-		key_padding = 130,
-		font_size   = 20,
-		line_h      = 25,
-	}
+	// Draw Machine state
+	pen := begin_panel(emu_state_panel, rl.GRAY, title = "State")
 
-	// Get state
-	s := cast(^State)state
-
-	set_pen(&pen, emu_state_panel, 20)
-
-	// Program counter
+	// Program counter & Stack counter & Address Register
 	{
-		val := fmt.caprintf("0x%04x", s.pc)
-		write_row(&pen, "PC", val, rl.YELLOW)
-		delete(val)
-	}
+		pc := fmt.caprintf("0x%04x", s.pc)
+		write_row(&pen, "PC", pc, rl.YELLOW)
+		delete(pc)
 
-	// Address register
-	{
-		blank_row(&pen)
-		val := fmt.caprintf("0x%04x", s.i)
-		write_row(&pen, "I", val, rl.BLUE)
-		delete(val)
+		sp := fmt.caprintf("%d (max %d)", s.sp, len(s.stack))
+		write_row(&pen, "SP", sp, rl.YELLOW)
+		delete(sp)
+
+		i := fmt.caprintf("0x%04x", s.i)
+		write_row(&pen, "I", i, rl.YELLOW)
+		delete(i)
 	}
 
 	// Timer
 	blank_row(&pen)
-	for t, idx in s.timer {
-		key := fmt.caprintf("Timer%d", idx)
-		val := fmt.caprintf("0x%02x", t)
-		write_row(&pen, key, val, rl.ORANGE)
-		delete(val)
-		delete(key)
+	{
+		delay_t := fmt.caprintf("%d", s.delay_timer)
+		sound_t := fmt.caprintf("%d", s.sound_timer)
+		write_row(&pen, "Delay", delay_t, rl.SKYBLUE)
+		write_row(&pen, "Sound", sound_t, rl.SKYBLUE)
+		delete(delay_t)
+		delete(sound_t)
 	}
 
 	// Display data registers
