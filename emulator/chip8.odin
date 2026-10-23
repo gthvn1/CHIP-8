@@ -1,4 +1,4 @@
-package game
+package emulator
 
 import "core:fmt"
 
@@ -32,7 +32,7 @@ new_state :: proc(counter := 3) -> rawptr {
 }
 
 // raylib is loaded once because it is dynamically linked. If it were statically linked
-// into "game.so" it would be reloaded with game.so with its own global variables. That is
+// into "chip8.so" it would be reloaded with chip8.so with its own global variables. That is
 // not what we want. InitWindow is called only here, once: the window lives in libraylib.so
 // and survives reloads.
 @(export)
