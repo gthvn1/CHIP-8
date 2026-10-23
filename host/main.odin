@@ -160,6 +160,62 @@ init_emulator_state :: proc(path: string) -> (state: Emulator_State, ok: bool) {
 	return
 }
 
+hot_reload :: proc(emup: ^Emulator_State, path: string) {
+	t, err := os.modification_time_by_path(path)
+	if err != nil {
+		fmt.eprintln(os.error_string(err))
+		return
+	}
+
+	if t == emup.last_update {return}
+
+	// NOTE
+	// A new version of the library is available. We try to load the new version before
+	// unloading the old one for two reasons.
+	// - The first reason is that if the load fails we keep the old version
+	// - The second is because raylib is a dependency of our chip8.so. Raylib is unloaded
+	//   only when no loaded copy of chip8.so needs it anymore.
+	//   By loading the new chip8.so first we ensure that raylib is always used and loaded.
+	//   Of course it means that raylib is not statically linked but dynamically linked.
+	//   Updated: as we are now using raylib from host the second point is not true because
+	//            it is always use but keep the remark as a remainder.
+	fmt.printfln("A new version of %s is available", path)
+
+	// In any case we update the last modification. If it fails we will
+	// retry on the next compilation and it prevents to loop on build failure.
+	emup.last_update = t
+
+	// Load a new version of the library
+	version := emup.version + 1
+	new_emu, new_emu_loaded := load_emulator(path, version)
+	if !new_emu_loaded {
+		fmt.eprintln("failed to load the new library, keep the old one")
+		return
+	}
+
+	// Before unloaded the old emulator we need to check if the rawptr has changed...
+	new_ptr := new_emu.on_reload(emup.ptr)
+	if new_ptr == nil {
+		fmt.eprintln("Something weird happens with the new state, keep the old one")
+		unload_emulator(new_emu)
+		return
+	}
+
+	if new_ptr != emup.ptr {
+		fmt.eprintln("Cleanup old state, a new one has been initialized")
+		emup.api.deinit(emup.ptr)
+	}
+
+	// The new library is successfully loaded, state is updated so we can unload the old one
+	unload_emulator(emup.api)
+
+	// Even if unload failed we have the new one that is successfully loaded so use it.
+	// "last_update" is already correct here.
+	emup.version = version
+	emup.api = new_emu
+	emup.ptr = new_ptr
+}
+
 main_loop :: proc(path: string) -> bool {
 	// Emulator expects a initialized window. So start by initializing the raylib window.
 	rl.InitWindow(800, 600, "CHIP-8 Emulator")
@@ -183,54 +239,7 @@ main_loop :: proc(path: string) -> bool {
 
 	// Invariant: emu always contains the last library successfully loaded.
 	for !rl.WindowShouldClose() {
-		t := os.modification_time_by_path(path) or_continue
-		if t != emu.last_update {
-			// NOTE
-			// A new version of the library is available. We try to load the new version before
-			// unloading the old one for two reasons.
-			// - The first reason is that if the load fails we keep the old version
-			// - The second is because raylib is a dependency of our chip8.so. Raylib is unloaded
-			//   only when no loaded copy of chip8.so needs it anymore.
-			//   By loading the new chip8.so first we ensure that raylib is always used and loaded.
-			//   Of course it means that raylib is not statically linked but dynamically linked.
-			//   Updated: as we are now using raylib from host the second point is not true because
-			//            it is always use but keep the remark as a remainder.
-			fmt.printfln("A new version of %s is available", path)
-
-			// In any case we update the last modification. If it fails we will
-			// retry on the next compilation and it prevents to loop on build failure.
-			emu.last_update = t
-
-			// Load a new version of the library
-			version := emu.version + 1
-			new_emu, new_emu_loaded := load_emulator(path, version)
-			if !new_emu_loaded {
-				fmt.eprintln("failed to load the new library, keep the old one")
-				continue
-			}
-
-			// Before unloaded the old emulator we need to check if the rawptr has changed...
-			new_ptr := new_emu.on_reload(emu.ptr)
-			if new_ptr == nil {
-				fmt.eprintln("Something weird happens with the new state, keep the old one")
-				unload_emulator(new_emu)
-				continue
-			}
-
-			if new_ptr != emu.ptr {
-				fmt.eprintln("Cleanup old state, a new one has been initialized")
-				emu.api.deinit(emu.ptr)
-			}
-
-			// The new library is successfully loaded, state is updated so we can unload the old one
-			unload_emulator(emu.api)
-
-			// Even if unload failed we have the new one that is successfully loaded so use it.
-			// host_state.last_update is already correct here.
-			emu.version = version
-			emu.api = new_emu
-			emu.ptr = new_ptr
-		}
+		hot_reload(&emu, path)
 
 		rl.BeginDrawing()
 		emu.api.render(emu.ptr)
