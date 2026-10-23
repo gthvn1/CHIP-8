@@ -1,6 +1,8 @@
 package emulator
 
 import "core:fmt"
+import "core:mem"
+import "core:os"
 
 // dynamically linked, vendor:raylib uses system:raylib
 // See $(odin root)/vendor/raylib/raylib.odin:102
@@ -39,6 +41,32 @@ clear_state :: proc(state: ^State) {
 		pc    = 0x200,
 		// All other fields are set to 0
 	}
+
+	// TODO: get the ROMs from command line
+	f, open_err := os.open("./roms/ibm-logo.ch8")
+	if open_err != nil {
+		fmt.eprintln(os.error_string(open_err))
+		return
+	}
+	defer os.close(f)
+
+	roms, read_err := os.read_entire_file_from_file(f, context.allocator)
+	if read_err != nil {
+		fmt.eprintln(os.error_string(read_err))
+		return
+	}
+	defer delete(roms)
+
+	if len(roms) > len(state.memory[0x200:]) {
+		fmt.eprintfln(
+			"Out of memory: roms size %d bytes while our memory is %d byte",
+			len(roms),
+			len(state.memory[0x200:]),
+		)
+		return
+	}
+
+	mem.copy(&state.memory[0x200], &roms[0], len(roms))
 }
 
 new_state :: proc() -> rawptr {
@@ -149,12 +177,69 @@ begin_panel :: proc(
 	}
 }
 
+render_code :: proc(panel: rl.Rectangle, state: ^State) {
+	pen := begin_panel(panel, rl.GREEN, title = "Code")
+
+	for idx := 0x200; idx <= 0x230; idx += 2 {
+		key := fmt.caprintf("0x%03x", idx)
+		val := fmt.caprintf("0x%02x%02x", state.memory[idx], state.memory[idx + 1])
+		write_row(&pen, key, val, rl.GREEN)
+		delete(val)
+		delete(key)
+	}
+}
+
+render_screen :: proc(panel: rl.Rectangle) {
+	begin_panel(panel, rl.WHITE)
+}
+
+render_debug :: proc(panel: rl.Rectangle) {
+	begin_panel(panel, rl.RED, title = "Debug")
+}
+
+render_state :: proc(panel: rl.Rectangle, state: ^State) {
+
+	pen := begin_panel(panel, rl.GRAY, title = "State")
+
+	// Program counter & Stack counter & Address Register
+	{
+		pc := fmt.caprintf("0x%04x", state.pc)
+		write_row(&pen, "PC", pc, rl.YELLOW)
+		delete(pc)
+
+		sp := fmt.caprintf("%d (max %d)", state.sp, len(state.stack))
+		write_row(&pen, "SP", sp, rl.YELLOW)
+		delete(sp)
+
+		i := fmt.caprintf("0x%04x", state.i)
+		write_row(&pen, "I", i, rl.YELLOW)
+		delete(i)
+	}
+
+	// Timer
+	blank_row(&pen)
+	{
+		delay_t := fmt.caprintf("%d", state.delay_timer)
+		sound_t := fmt.caprintf("%d", state.sound_timer)
+		write_row(&pen, "Delay", delay_t, rl.SKYBLUE)
+		write_row(&pen, "Sound", sound_t, rl.SKYBLUE)
+		delete(delay_t)
+		delete(sound_t)
+	}
+
+	// Display data registers
+	blank_row(&pen)
+	for v, idx in state.v {
+		key := fmt.caprintf("V%X", idx)
+		val := fmt.caprintf("0x%02x", v)
+		write_row(&pen, key, val, rl.ORANGE)
+		delete(val)
+		delete(key)
+	}
+}
+
 @(export)
 render :: proc(state: rawptr) {
-	s := cast(^State)state
-
-	rl.ClearBackground(rl.BLACK)
-
 	//  0          320                      960         1280
 	//  ┌───────────┬────────────────────────┬───────────┐ 0
 	//  │           │                        │           │
@@ -171,75 +256,39 @@ render :: proc(state: rawptr) {
 	screen_width := rl.GetScreenWidth()
 	screen_height := rl.GetScreenHeight()
 
-	code_panel := rl.Rectangle {
-		x      = 0,
-		y      = 0,
-		width  = CODE_WIDTH,
-		height = cast(f32)screen_height,
-	}
+	rl.ClearBackground(rl.BLACK)
 
-	screen_panel := rl.Rectangle {
-		x      = CODE_WIDTH,
-		y      = 0,
-		width  = CHIP8_WIDTH * SCALE,
-		height = CHIP8_HEIGHT * SCALE,
-	}
+	render_code(
+		rl.Rectangle{x = 0, y = 0, width = CODE_WIDTH, height = cast(f32)screen_height},
+		cast(^State)state,
+	)
 
-	debug_panel := rl.Rectangle {
-		x      = CODE_WIDTH,
-		y      = CHIP8_HEIGHT * SCALE,
-		width  = CHIP8_WIDTH * SCALE,
-		height = cast(f32)(screen_height - CHIP8_HEIGHT * SCALE),
-	}
+	render_screen(
+		rl.Rectangle {
+			x = CODE_WIDTH,
+			y = 0,
+			width = CHIP8_WIDTH * SCALE,
+			height = CHIP8_HEIGHT * SCALE,
+		},
+	)
 
-	emu_state_panel := rl.Rectangle {
-		x      = CODE_WIDTH + CHIP8_WIDTH * SCALE,
-		y      = 0,
-		width  = cast(f32)screen_width - (CODE_WIDTH + CHIP8_WIDTH * SCALE),
-		height = cast(f32)screen_height,
-	}
+	render_debug(
+		rl.Rectangle {
+			x = CODE_WIDTH,
+			y = CHIP8_HEIGHT * SCALE,
+			width = CHIP8_WIDTH * SCALE,
+			height = cast(f32)(screen_height - CHIP8_HEIGHT * SCALE),
+		},
+	)
 
-	// Draw Code
-	begin_panel(code_panel, rl.GREEN, title = "Code")
-	begin_panel(screen_panel, rl.WHITE)
-	begin_panel(debug_panel, rl.RED, title = "Debug")
+	render_state(
+		rl.Rectangle {
+			x = CODE_WIDTH + CHIP8_WIDTH * SCALE,
+			y = 0,
+			width = cast(f32)screen_width - (CODE_WIDTH + CHIP8_WIDTH * SCALE),
+			height = cast(f32)screen_height,
+		},
+		cast(^State)state,
+	)
 
-	// Draw Machine state
-	pen := begin_panel(emu_state_panel, rl.GRAY, title = "State")
-
-	// Program counter & Stack counter & Address Register
-	{
-		pc := fmt.caprintf("0x%04x", s.pc)
-		write_row(&pen, "PC", pc, rl.YELLOW)
-		delete(pc)
-
-		sp := fmt.caprintf("%d (max %d)", s.sp, len(s.stack))
-		write_row(&pen, "SP", sp, rl.YELLOW)
-		delete(sp)
-
-		i := fmt.caprintf("0x%04x", s.i)
-		write_row(&pen, "I", i, rl.YELLOW)
-		delete(i)
-	}
-
-	// Timer
-	blank_row(&pen)
-	{
-		delay_t := fmt.caprintf("%d", s.delay_timer)
-		sound_t := fmt.caprintf("%d", s.sound_timer)
-		write_row(&pen, "Delay", delay_t, rl.SKYBLUE)
-		write_row(&pen, "Sound", sound_t, rl.SKYBLUE)
-		delete(delay_t)
-		delete(sound_t)
-	}
-
-	// Display data registers
-	blank_row(&pen)
-	for v, idx in s.v {
-		key := fmt.caprintf("V%X", idx)
-		val := fmt.caprintf("0x%02x", v)
-		write_row(&pen, key, val, rl.ORANGE)
-		delete(val)
-		delete(key)
-	}
 }
