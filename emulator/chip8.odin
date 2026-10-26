@@ -17,7 +17,6 @@ CODE_WIDTH :: 320
 
 PROGRAM_START :: 0x200
 
-
 State :: struct {
 	// The magic and the size of the struct *MUST* stay first. It is used by on_reload to
 	// know if the struct has changed (it doesn't detect new order, only add/del fields)
@@ -117,6 +116,12 @@ update :: proc(state: rawptr) {
 	if rl.IsKeyPressed(.R) {
 		clear_state(s)
 	}
+
+	if rl.IsKeyPressed(.SPACE) {
+		bin_insn := fetch(s)
+		insn := decode(bin_insn)
+		execute(&insn, s)
+	}
 }
 
 Pen :: struct {
@@ -200,109 +205,13 @@ render_screen :: proc(panel: rl.Rectangle) {
 	begin_panel(panel, rl.WHITE)
 }
 
-Opcode :: enum {
-	Unknown, // 0
-	Clear,
-	Return,
-	Jump,
-	Call,
-	Seq,
-	Sneq,
-	Sveq,
-	Set,
-	Add,
-}
-
-Instruction :: struct {
-	raw:    u16,
-	opcode: Opcode,
-	nnn:    u16, // 12-bit address
-	nn:     u8, // 8-bit constant
-	n:      u8, // 4-bit constant
-	x:      u8, // Register identifier
-	y:      u8, // Register identifier
-}
-
-Rule :: struct {
-	mask:   u16,
-	value:  u16,
-	opcode: Opcode,
-}
-
-DECODER_RULES :: [?]Rule {
-	{0xFFFF, 0x00E0, .Clear}, // 00E0
-	{0xFFFF, 0x00EE, .Return}, // 00EE
-	{0xF000, 0x1000, .Jump}, // 1NNN
-	{0xF000, 0x2000, .Call}, // 2NNN
-	{0xF000, 0x3000, .Seq}, // 3XNN
-	{0xF000, 0x4000, .Sneq}, // 4XNN
-	{0xF00F, 0x5000, .Sveq}, // 5XY0
-	{0xF000, 0x6000, .Set}, // 6XNN
-	{0xF000, 0x7000, .Add}, // 7XNN
-}
-
-decode :: proc(hi: u8, low: u8) -> (insn: Instruction) {
-	raw := u16(hi) << 8 | u16(low)
-
-	insn = Instruction {
-		raw = raw,
-		nnn = raw & 0x0FFF,
-		nn  = u8(raw & 0xFF),
-		n   = u8(raw & 0xF),
-		x   = u8(raw >> 8 & 0xF),
-		y   = u8(raw >> 4 & 0xF),
-	}
-
-	for r in DECODER_RULES {
-		if (raw & r.mask) == r.value {
-			insn.opcode = r.opcode
-			return
-		}
-	}
-
-	// As .Unkown is the first value of the enum it is the default one.
-	// If we are here then .Unkown is returned.
-	return
-}
-
-disassemble :: proc(insn: ^Instruction, state: ^State, output: []u8) -> string {
-	switch insn.opcode {
-	case .Unknown:
-		return fmt.bprintf(output, "UNKN")
-	case .Clear:
-		return fmt.bprintf(output, "CLR")
-	case .Return:
-		return fmt.bprintf(output, "RET")
-	case .Jump:
-		return fmt.bprintf(output, "JMP 0x%04x", insn.nnn)
-	case .Call:
-		return fmt.bprintf(output, "CALL 0x%04x", insn.nnn)
-	case .Seq:
-		return fmt.bprintf(output, "SEQ V[%d]0x%x, 0x%x", insn.x, state.v[insn.x], insn.nn)
-	case .Sneq:
-		return fmt.bprintf(output, "SNEQ V[%d]0x%x, 0x%x", insn.x, state.v[insn.x], insn.nn)
-	case .Sveq:
-		return fmt.bprintf(
-			output,
-			"SVEQ V[%d]0x%04x, V[%d]0x%04x",
-			insn.x,
-			state.v[insn.x],
-			insn.y,
-			state.v[insn.y],
-		)
-	case .Set:
-		return fmt.bprintf(output, "SET V[%d]0x%x, 0x%x", insn.x, state.v[insn.x], insn.nn)
-	case .Add:
-		return fmt.bprintf(output, "ADD V[%d]0x%x, 0x%x", insn.x, state.v[insn.x], insn.nn)
-	}
-
-	return fmt.bprintf(output, "UNREACHABLE")
-}
-
 render_debug :: proc(panel: rl.Rectangle, state: ^State) {
 	pen := begin_panel(panel, rl.RED, title = "Debug")
 
-	insn := decode(state.memory[state.pc], state.memory[state.pc + 1])
+	// Don't fetch here, just decode the current instruction.
+	current_insn := (u16(state.memory[state.pc]) << 8) | u16(state.memory[state.pc + 1])
+	insn := decode(current_insn)
+
 	key := fmt.caprintf("0x%04x: ", insn.raw)
 	buf: [32]u8
 	// To ensure we have a null terminaed string we pass the buffer minus
