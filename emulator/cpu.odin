@@ -22,15 +22,17 @@ Chip :: struct {
 
 Opcode :: enum {
 	Unknown, // 0
-	Clear,
-	Return,
-	Jump,
-	Call,
-	Seq,
-	Sneq,
-	Sveq,
-	Set,
-	Add,
+	Cls, // Clear the display
+	Ret, // Return from subroutine
+	Jp_addr, // Jump to location nnn
+	Call_addr, // Call subroutine at nnn
+	Se_vx_byte, // Skip next instruction if Vx = nn
+	Sne_vx_byte, // Skip next instruction if Vx != nn
+	Se_vx_vy, // Skip next instruction if Vx = Vy
+	Ld_vx_byte, // Set Vx = nn
+	Add_vx_byte, // Set Vx = Vx + nn
+	Ld_i_addr, // Set I = nnn
+	Drw_vx_vy_nibble, // Display n-byte sprite starting at memory location I at (Vx, Vy)
 }
 
 Instruction :: struct {
@@ -49,16 +51,19 @@ Rule :: struct {
 	opcode: Opcode,
 }
 
+// http://devernay.free.fr/hacks/chip8/C8TECH10.HTM#3.1
 DECODER_RULES :: [?]Rule {
-	{0xFFFF, 0x00E0, .Clear}, // 00E0
-	{0xFFFF, 0x00EE, .Return}, // 00EE
-	{0xF000, 0x1000, .Jump}, // 1NNN
-	{0xF000, 0x2000, .Call}, // 2NNN
-	{0xF000, 0x3000, .Seq}, // 3XNN
-	{0xF000, 0x4000, .Sneq}, // 4XNN
-	{0xF00F, 0x5000, .Sveq}, // 5XY0
-	{0xF000, 0x6000, .Set}, // 6XNN
-	{0xF000, 0x7000, .Add}, // 7XNN
+	{0xFFFF, 0x00E0, .Cls}, // 00E0
+	{0xFFFF, 0x00EE, .Ret}, // 00EE
+	{0xF000, 0x1000, .Jp_addr}, // 1nnn
+	{0xF000, 0x2000, .Call_addr}, // 2nnn
+	{0xF000, 0x3000, .Se_vx_byte}, // 3xnn
+	{0xF000, 0x4000, .Sne_vx_byte}, // 4xnn
+	{0xF00F, 0x5000, .Se_vx_vy}, // 5xy0
+	{0xF000, 0x6000, .Ld_vx_byte}, // 6xnn
+	{0xF000, 0x7000, .Add_vx_byte}, // 7xnn
+	{0xF000, 0xA000, .Ld_i_addr}, // Annn
+	{0xF000, 0xD000, .Drw_vx_vy_nibble}, // Dxyn
 }
 
 read_opcode :: proc(chip: ^Chip, addr: u16) -> (opcode: u16, ok: bool) {
@@ -98,15 +103,15 @@ decode :: proc(bin_insn: u16) -> (insn: Instruction) {
 		}
 	}
 
-	// As .Unkown is the first value of the enum it is the default one.
-	// If we are here then .Unkown is returned.
+	// As .Unknown is the first value of the enum it is the default one.
+	// If we are here then .Unknown is returned.
 	return
 }
 
 execute :: proc(insn: ^Instruction, chip: ^Chip) {
 	#partial switch insn.opcode {
-	case .Clear:
-		fmt.eprintln("TODO: clear the screen")
+	case .Cls:
+		fmt.eprintln("TODO: clear the display")
 	case:
 		fmt.eprintln("Instruction not implemented")
 	}
@@ -116,25 +121,29 @@ execute :: proc(insn: ^Instruction, chip: ^Chip) {
 disassemble :: proc(insn: ^Instruction, output: []u8) -> string {
 	switch insn.opcode {
 	case .Unknown:
-		return fmt.bprintf(output, "UNKN")
-	case .Clear:
-		return fmt.bprintf(output, "CLR")
-	case .Return:
+		return fmt.bprintf(output, "???")
+	case .Cls:
+		return fmt.bprintf(output, "CLS")
+	case .Ret:
 		return fmt.bprintf(output, "RET")
-	case .Jump:
-		return fmt.bprintf(output, "JMP 0x%03x", insn.nnn)
-	case .Call:
+	case .Jp_addr:
+		return fmt.bprintf(output, "JP 0x%03x", insn.nnn)
+	case .Call_addr:
 		return fmt.bprintf(output, "CALL 0x%03x", insn.nnn)
-	case .Seq:
-		return fmt.bprintf(output, "SEQ V[%d] 0x%x", insn.x, insn.nn)
-	case .Sneq:
-		return fmt.bprintf(output, "SNEQ V[%d] 0x%x", insn.x, insn.nn)
-	case .Sveq:
-		return fmt.bprintf(output, "SVEQ V[%d] V[%d]", insn.x, insn.y)
-	case .Set:
-		return fmt.bprintf(output, "SET V[%d] 0x%x", insn.x, insn.nn)
-	case .Add:
-		return fmt.bprintf(output, "ADD V[%d] 0x%x", insn.x, insn.nn)
+	case .Se_vx_byte:
+		return fmt.bprintf(output, "SE V%X, 0x%02x", insn.x, insn.nn)
+	case .Sne_vx_byte:
+		return fmt.bprintf(output, "SNE V%X, 0x%02x", insn.x, insn.nn)
+	case .Se_vx_vy:
+		return fmt.bprintf(output, "SE V%X, V%X", insn.x, insn.y)
+	case .Ld_vx_byte:
+		return fmt.bprintf(output, "LD V%X, 0x%02x", insn.x, insn.nn)
+	case .Add_vx_byte:
+		return fmt.bprintf(output, "ADD V%X, 0x%02x", insn.x, insn.nn)
+	case .Ld_i_addr:
+		return fmt.bprintf(output, "LD I, 0x%03x", insn.nnn)
+	case .Drw_vx_vy_nibble:
+		return fmt.bprintf(output, "DRW V%X, V%X, 0x%02x", insn.x, insn.y, insn.n)
 	}
 
 	return fmt.bprintf(output, "UNREACHABLE")
