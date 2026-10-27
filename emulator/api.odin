@@ -101,8 +101,12 @@ update :: proc(state: rawptr) {
 	}
 
 	if rl.IsKeyPressed(.SPACE) {
-		bin_insn := fetch(&s.chip)
-		insn := decode(bin_insn)
+		opcode, ok := fetch(&s.chip)
+		if !ok {
+			fmt.eprintfln("Failed to fetch (PC=0x%04x)", s.chip.pc)
+			return
+		}
+		insn := decode(opcode)
 		execute(&insn, &s.chip)
 	}
 }

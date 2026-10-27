@@ -95,16 +95,22 @@ render_debug :: proc(panel: rl.Rectangle, chip: ^Chip) {
 	pen := begin_panel(panel, rl.RED, title = "Debug")
 
 	// Don't fetch here, just decode the current instruction.
-	current_insn := (u16(chip.memory[chip.pc]) << 8) | u16(chip.memory[chip.pc + 1])
-	insn := decode(current_insn)
+	opcode, ok := read_opcode(chip, chip.pc)
+	if !ok {
+		val := fmt.caprintf("Failed to fetch 0x%04x", chip.pc)
+		write_row(&pen, val, "", rl.RED)
+		delete(val)
+	} else {
+		insn := decode(opcode)
 
-	key := fmt.caprintf("0x%04x: ", insn.raw)
-	buf: [32]u8
-	// To ensure we have a null terminaed string we pass the buffer minus
-	// the last byte.
-	text := disassemble(&insn, chip, buf[:len(buf) - 1])
-	write_row(&pen, key, cstring(raw_data(text)), rl.RED)
-	delete(key)
+		key := fmt.caprintf("0x%04x: ", insn.raw)
+		buf: [32]u8
+		// To ensure we have a null terminaed string we pass the buffer minus
+		// the last byte.
+		text := disassemble(&insn, buf[:len(buf) - 1])
+		write_row(&pen, key, cstring(raw_data(text)), rl.WHITE)
+		delete(key)
+	}
 }
 
 render_state :: proc(panel: rl.Rectangle, chip: ^Chip) {

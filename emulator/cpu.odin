@@ -61,11 +61,24 @@ DECODER_RULES :: [?]Rule {
 	{0xF000, 0x7000, .Add}, // 7XNN
 }
 
-fetch :: proc(chip: ^Chip) -> u16 {
+read_opcode :: proc(chip: ^Chip, addr: u16) -> (opcode: u16, ok: bool) {
+	if addr >= len(chip.memory) - 1 {
+		return
+	}
+
+	hi := u16(chip.memory[addr])
+	low := u16(chip.memory[addr + 1])
+	opcode = (hi << 8) | low
+	ok = true
+	return
+}
+
+fetch :: proc(chip: ^Chip) -> (opcode: u16, ok: bool) {
 	// Fetch the instruction under PC and update the PC.
-	hi := u16(chip.memory[chip.pc])
-	low := u16(chip.memory[chip.pc + 1])
-	return (hi << 8) | low
+	opcode, ok = read_opcode(chip, chip.pc)
+	if !ok {return}
+	chip.pc += 2
+	return
 }
 
 decode :: proc(bin_insn: u16) -> (insn: Instruction) {
@@ -93,14 +106,14 @@ decode :: proc(bin_insn: u16) -> (insn: Instruction) {
 execute :: proc(insn: ^Instruction, chip: ^Chip) {
 	#partial switch insn.opcode {
 	case .Clear:
-		chip.pc += 2
+		fmt.eprintln("TODO: clear the screen")
 	case:
 		fmt.eprintln("Instruction not implemented")
 	}
 
 }
 
-disassemble :: proc(insn: ^Instruction, chip: ^Chip, output: []u8) -> string {
+disassemble :: proc(insn: ^Instruction, output: []u8) -> string {
 	switch insn.opcode {
 	case .Unknown:
 		return fmt.bprintf(output, "UNKN")
@@ -113,22 +126,15 @@ disassemble :: proc(insn: ^Instruction, chip: ^Chip, output: []u8) -> string {
 	case .Call:
 		return fmt.bprintf(output, "CALL 0x%04x", insn.nnn)
 	case .Seq:
-		return fmt.bprintf(output, "SEQ V[%d]0x%x, 0x%x", insn.x, chip.v[insn.x], insn.nn)
+		return fmt.bprintf(output, "SEQ V[%d] 0x%x", insn.x, insn.nn)
 	case .Sneq:
-		return fmt.bprintf(output, "SNEQ V[%d]0x%x, 0x%x", insn.x, chip.v[insn.x], insn.nn)
+		return fmt.bprintf(output, "SNEQ V[%d] 0x%x", insn.x, insn.nn)
 	case .Sveq:
-		return fmt.bprintf(
-			output,
-			"SVEQ V[%d]0x%04x, V[%d]0x%04x",
-			insn.x,
-			chip.v[insn.x],
-			insn.y,
-			chip.v[insn.y],
-		)
+		return fmt.bprintf(output, "SVEQ V[%d] V[%d]", insn.x, insn.y)
 	case .Set:
-		return fmt.bprintf(output, "SET V[%d]0x%x, 0x%x", insn.x, chip.v[insn.x], insn.nn)
+		return fmt.bprintf(output, "SET V[%d] 0x%x", insn.x, insn.nn)
 	case .Add:
-		return fmt.bprintf(output, "ADD V[%d]0x%x, 0x%x", insn.x, chip.v[insn.x], insn.nn)
+		return fmt.bprintf(output, "ADD V[%d] 0x%x", insn.x, insn.nn)
 	}
 
 	return fmt.bprintf(output, "UNREACHABLE")
