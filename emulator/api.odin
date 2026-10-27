@@ -136,7 +136,7 @@ update :: proc(state: rawptr) {
 }
 
 @(export)
-render :: proc(state: rawptr) {
+render :: proc(state: rawptr, font: rl.Font) {
 	s := cast(^State)state
 	chip := &s.chip
 
@@ -160,6 +160,7 @@ render :: proc(state: rawptr) {
 
 	render_code(
 		rl.Rectangle{x = 0, y = 0, width = CODE_WIDTH, height = cast(f32)screen_height},
+		font,
 		chip,
 	)
 
@@ -170,6 +171,7 @@ render :: proc(state: rawptr) {
 			width = CHIP8_WIDTH * SCALE,
 			height = CHIP8_HEIGHT * SCALE,
 		},
+		font,
 	)
 
 	render_debug(
@@ -179,6 +181,7 @@ render :: proc(state: rawptr) {
 			width = CHIP8_WIDTH * SCALE,
 			height = cast(f32)(screen_height - CHIP8_HEIGHT * SCALE),
 		},
+		font,
 		s,
 	)
 
@@ -189,6 +192,7 @@ render :: proc(state: rawptr) {
 			width = cast(f32)screen_width - (CODE_WIDTH + CHIP8_WIDTH * SCALE),
 			height = cast(f32)screen_height,
 		},
+		font,
 		chip,
 	)
 

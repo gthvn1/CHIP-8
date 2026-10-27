@@ -11,6 +11,7 @@ SCALE :: 10
 CODE_WIDTH :: 320
 
 Pen :: struct {
+	font:      rl.Font,
 	x_key:     i32,
 	x_val:     i32,
 	y:         i32,
@@ -19,8 +20,9 @@ Pen :: struct {
 }
 
 write_row :: proc(pen: ^Pen, key: cstring, val: cstring, color: rl.Color) {
-	rl.DrawText(key, pen.x_key, pen.y, pen.font_size, color)
-	rl.DrawText(val, pen.x_val, pen.y, pen.font_size, color)
+	size := f32(pen.font_size)
+	rl.DrawTextEx(pen.font, key, {f32(pen.x_key), f32(pen.y)}, size, 0, color)
+	rl.DrawTextEx(pen.font, val, {f32(pen.x_val), f32(pen.y)}, size, 0, color)
 	pen.y += pen.line_h
 }
 
@@ -31,6 +33,7 @@ blank_row :: proc(pen: ^Pen) {
 begin_panel :: proc(
 	panel: rl.Rectangle,
 	color: rl.Color,
+	font: rl.Font,
 	thick: f32 = 2,
 	margin: i32 = 5,
 	key_padding: i32 = 100,
@@ -55,12 +58,15 @@ begin_panel :: proc(
 
 	if title != nil {
 		line_pos = font_size + margin
-		title_space := (p_w - rl.MeasureText(title, font_size)) / 2
-		rl.DrawText(title, p_x + title_space, p_y + margin, font_size, color)
+		title_w := i32(rl.MeasureTextEx(font, title, f32(font_size), 0).x)
+		title_space := (p_w - title_w) / 2
+		title_pos := rl.Vector2{f32(p_x + title_space), f32(p_y + margin)}
+		rl.DrawTextEx(font, title, title_pos, f32(font_size), 0, color)
 		rl.DrawLine(p_x, p_y + line_pos, p_w + p_x, p_y + line_pos, color)
 	}
 
 	return Pen {
+		font = font,
 		x_key = p_x + margin,
 		x_val = p_x + key_padding + margin,
 		y = p_y + line_pos + margin,
@@ -69,8 +75,8 @@ begin_panel :: proc(
 	}
 }
 
-render_code :: proc(panel: rl.Rectangle, chip: ^Chip) {
-	pen := begin_panel(panel, rl.GREEN, title = "Code")
+render_code :: proc(panel: rl.Rectangle, font: rl.Font, chip: ^Chip) {
+	pen := begin_panel(panel, rl.GREEN, font, title = "Code")
 
 	// Let's print 50 line
 	for idx := PROGRAM_START; idx <= PROGRAM_START + 50; idx += 2 {
@@ -87,13 +93,13 @@ render_code :: proc(panel: rl.Rectangle, chip: ^Chip) {
 	}
 }
 
-render_screen :: proc(panel: rl.Rectangle) {
-	begin_panel(panel, rl.WHITE)
+render_screen :: proc(panel: rl.Rectangle, font: rl.Font) {
+	begin_panel(panel, rl.WHITE, font)
 }
 
-render_debug :: proc(panel: rl.Rectangle, state: ^State) {
+render_debug :: proc(panel: rl.Rectangle, font: rl.Font, state: ^State) {
 	chip := &state.chip
-	pen := begin_panel(panel, rl.WHITE, title = "Debug")
+	pen := begin_panel(panel, rl.WHITE, font, title = "Debug")
 
 	// Print the history
 	start := state.idx
@@ -124,8 +130,8 @@ render_debug :: proc(panel: rl.Rectangle, state: ^State) {
 	}
 }
 
-render_state :: proc(panel: rl.Rectangle, chip: ^Chip) {
-	pen := begin_panel(panel, rl.GRAY, title = "State")
+render_state :: proc(panel: rl.Rectangle, font: rl.Font, chip: ^Chip) {
+	pen := begin_panel(panel, rl.GRAY, font, title = "State")
 
 	// Program counter & Stack counter & Address Register
 	{

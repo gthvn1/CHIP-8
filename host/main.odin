@@ -13,7 +13,7 @@ Init_Proc :: proc() -> rawptr
 Deinit_Proc :: proc(_: rawptr)
 On_Reload_Proc :: proc(_: rawptr) -> rawptr
 Update_Proc :: proc(_: rawptr)
-Render_Proc :: proc(_: rawptr)
+Render_Proc :: proc(_: rawptr, _: rl.Font)
 
 Emulator_State :: struct {
 	mtime:   time.Time,
@@ -231,6 +231,10 @@ main_loop :: proc(path: string) -> bool {
 	rl.InitWindow(1280, 720, "CHIP-8 Emulator")
 	defer rl.CloseWindow()
 
+	// Rasterized at the size the emulator draws with (Pen.font_size) to get a 1:1 rendering.
+	font := rl.LoadFontEx("assets/JetBrainsMono-Regular.ttf", 20, nil, 0)
+	defer rl.UnloadFont(font)
+
 	// init emulator will load the chip8.so. So we need to defer the unload now because
 	// defer are executed in reverse order.
 	emu, ok := init_emulator_state(path)
@@ -254,7 +258,7 @@ main_loop :: proc(path: string) -> bool {
 		emu.api.update(emu.ptr)
 
 		rl.BeginDrawing()
-		emu.api.render(emu.ptr)
+		emu.api.render(emu.ptr, font)
 		rl.EndDrawing()
 	}
 
