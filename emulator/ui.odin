@@ -91,19 +91,30 @@ render_screen :: proc(panel: rl.Rectangle) {
 	begin_panel(panel, rl.WHITE)
 }
 
-render_debug :: proc(panel: rl.Rectangle, chip: ^Chip) {
-	pen := begin_panel(panel, rl.RED, title = "Debug")
+render_debug :: proc(panel: rl.Rectangle, state: ^State) {
+	chip := &state.chip
+	pen := begin_panel(panel, rl.WHITE, title = "Debug")
 
-	// Don't fetch here, just decode the current instruction.
+	// Print the history
+	start := state.idx
+	end := state.idx + len(state.traces)
+	for idx in start ..< end {
+		addr := fmt.caprintf("0x%03x", state.traces[idx % len(state.traces)].addr)
+		text := cstring(raw_data(state.traces[idx % len(state.traces)].text[:]))
+		write_row(&pen, addr, text, rl.GRAY)
+		delete(addr)
+	}
+
+	// And print the current instruction, don't fetch here, just decode.
 	opcode, ok := read_opcode(chip, chip.pc)
 	if !ok {
-		val := fmt.caprintf("Failed to fetch 0x%04x", chip.pc)
+		val := fmt.caprintf("Failed to fetch 0x%03x", chip.pc)
 		write_row(&pen, val, "", rl.RED)
 		delete(val)
 	} else {
 		insn := decode(opcode)
 
-		key := fmt.caprintf("0x%04x: ", insn.raw)
+		key := fmt.caprintf("0x%03x", chip.pc)
 		buf: [32]u8
 		// To ensure we have a null terminaed string we pass the buffer minus
 		// the last byte.
@@ -118,7 +129,7 @@ render_state :: proc(panel: rl.Rectangle, chip: ^Chip) {
 
 	// Program counter & Stack counter & Address Register
 	{
-		pc := fmt.caprintf("0x%04x", chip.pc)
+		pc := fmt.caprintf("0x%03x", chip.pc)
 		write_row(&pen, "PC", pc, rl.YELLOW)
 		delete(pc)
 
@@ -126,7 +137,7 @@ render_state :: proc(panel: rl.Rectangle, chip: ^Chip) {
 		write_row(&pen, "SP", sp, rl.YELLOW)
 		delete(sp)
 
-		i := fmt.caprintf("0x%04x", chip.i)
+		i := fmt.caprintf("0x%03x", chip.i)
 		write_row(&pen, "I", i, rl.YELLOW)
 		delete(i)
 	}

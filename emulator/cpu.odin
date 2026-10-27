@@ -122,9 +122,9 @@ disassemble :: proc(insn: ^Instruction, output: []u8) -> string {
 	case .Return:
 		return fmt.bprintf(output, "RET")
 	case .Jump:
-		return fmt.bprintf(output, "JMP 0x%04x", insn.nnn)
+		return fmt.bprintf(output, "JMP 0x%03x", insn.nnn)
 	case .Call:
-		return fmt.bprintf(output, "CALL 0x%04x", insn.nnn)
+		return fmt.bprintf(output, "CALL 0x%03x", insn.nnn)
 	case .Seq:
 		return fmt.bprintf(output, "SEQ V[%d] 0x%x", insn.x, insn.nn)
 	case .Sneq:

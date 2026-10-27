@@ -9,13 +9,30 @@ import rl "vendor:raylib"
 
 MAGIC :: 0xDECAFBAD
 
+Trace_Entry :: struct {
+	addr: u16,
+	text: [32]u8,
+}
+
+trace_push :: proc(s: ^State, addr: u16, insn: ^Instruction) {
+	// Trace the instruction
+	slot := &s.traces[s.idx]
+	slot.addr = addr
+	slot.text = {} // clean old text
+	disassemble(insn, slot.text[:len(slot.text) - 1])
+	s.idx = (s.idx + 1) % len(s.traces)
+}
+
 State :: struct {
 	// The magic and the size of the struct *MUST* stay first. It is used by on_reload to
 	// know if the struct has changed (it doesn't detect new order, only add/del fields)
-	magic: int,
-	size:  int,
+	magic:  int,
+	size:   int,
 	// CHIP-8 specific
-	chip:  Chip,
+	chip:   Chip,
+	// Logs
+	traces: [12]Trace_Entry, // TODO: deduce the size of traces from panel
+	idx:    u8, // Index of the next trace entry we will write
 }
 
 clear_state :: proc(state: ^State) {
@@ -101,12 +118,19 @@ update :: proc(state: rawptr) {
 	}
 
 	if rl.IsKeyPressed(.SPACE) {
+		// Keep the current address for the trace
+		addr := s.chip.pc
+
 		opcode, ok := fetch(&s.chip)
 		if !ok {
-			fmt.eprintfln("Failed to fetch (PC=0x%04x)", s.chip.pc)
+			fmt.eprintfln("Failed to fetch (PC=0x%03x)", s.chip.pc)
 			return
 		}
 		insn := decode(opcode)
+
+		// Trace the instruction
+		trace_push(s, addr, &insn)
+
 		execute(&insn, &s.chip)
 	}
 }
@@ -155,7 +179,7 @@ render :: proc(state: rawptr) {
 			width = CHIP8_WIDTH * SCALE,
 			height = cast(f32)(screen_height - CHIP8_HEIGHT * SCALE),
 		},
-		chip,
+		s,
 	)
 
 	render_state(
