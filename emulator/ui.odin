@@ -1,75 +1,14 @@
 package emulator
 
 import "core:fmt"
-import "core:os"
 
 // dynamically linked, vendor:raylib uses system:raylib
 // See $(odin root)/vendor/raylib/raylib.odin:102
 import rl "vendor:raylib"
 
-MAGIC :: 0xDECAFBAD
-
-CHIP8_WIDTH :: 64
-CHIP8_HEIGHT :: 32
 SCALE :: 10
 
 CODE_WIDTH :: 320
-
-PROGRAM_START :: 0x200
-
-State :: struct {
-	// The magic and the size of the struct *MUST* stay first. It is used by on_reload to
-	// know if the struct has changed (it doesn't detect new order, only add/del fields)
-	magic: int,
-	size:  int,
-	// CHIP-8 specific
-	chip:  Chip,
-}
-
-clear_state :: proc(state: ^State) {
-	state^ = State {
-		magic = MAGIC,
-		size = size_of(State),
-		chip = {pc = PROGRAM_START},
-		// All other fields are set to 0
-	}
-
-	// TODO: get the ROMs from command line
-	f, open_err := os.open("./roms/ibm-logo.ch8")
-	if open_err != nil {
-		fmt.eprintln(os.error_string(open_err))
-		return
-	}
-	defer os.close(f)
-
-	roms, read_err := os.read_entire_file_from_file(f, context.allocator)
-	if read_err != nil {
-		fmt.eprintln(os.error_string(read_err))
-		return
-	}
-	defer delete(roms)
-
-	copied := copy(state.chip.memory[PROGRAM_START:], roms)
-	if copied < len(roms) {
-		fmt.eprintfln(
-			"Out of memory: roms size %d bytes while our memory is %d byte",
-			len(roms),
-			len(state.chip.memory[PROGRAM_START:]),
-		)
-		return
-	}
-}
-
-new_state :: proc() -> rawptr {
-	s, err := new(State)
-	if err != .None {
-		fmt.eprintln(err)
-		return nil
-	}
-
-	clear_state(s)
-	return s
-}
 
 Pen :: struct {
 	x_key:     i32,

@@ -1,10 +1,67 @@
 package emulator
 
 import "core:fmt"
+import "core:os"
 
 // dynamically linked, vendor:raylib uses system:raylib
 // See $(odin root)/vendor/raylib/raylib.odin:102
 import rl "vendor:raylib"
+
+MAGIC :: 0xDECAFBAD
+
+State :: struct {
+	// The magic and the size of the struct *MUST* stay first. It is used by on_reload to
+	// know if the struct has changed (it doesn't detect new order, only add/del fields)
+	magic: int,
+	size:  int,
+	// CHIP-8 specific
+	chip:  Chip,
+}
+
+clear_state :: proc(state: ^State) {
+	state^ = State {
+		magic = MAGIC,
+		size = size_of(State),
+		chip = {pc = PROGRAM_START},
+		// All other fields are set to 0
+	}
+
+	// TODO: get the ROMs from command line
+	f, open_err := os.open("./roms/ibm-logo.ch8")
+	if open_err != nil {
+		fmt.eprintln(os.error_string(open_err))
+		return
+	}
+	defer os.close(f)
+
+	roms, read_err := os.read_entire_file_from_file(f, context.allocator)
+	if read_err != nil {
+		fmt.eprintln(os.error_string(read_err))
+		return
+	}
+	defer delete(roms)
+
+	copied := copy(state.chip.memory[PROGRAM_START:], roms)
+	if copied < len(roms) {
+		fmt.eprintfln(
+			"Out of memory: roms size %d bytes while our memory is %d byte",
+			len(roms),
+			len(state.chip.memory[PROGRAM_START:]),
+		)
+		return
+	}
+}
+
+new_state :: proc() -> rawptr {
+	s, err := new(State)
+	if err != .None {
+		fmt.eprintln(err)
+		return nil
+	}
+
+	clear_state(s)
+	return s
+}
 
 @(export)
 init :: proc() -> rawptr {
@@ -53,7 +110,7 @@ update :: proc(state: rawptr) {
 @(export)
 render :: proc(state: rawptr) {
 	s := cast(^State)state
-	chip := s.chip
+	chip := &s.chip
 
 	//  0          320                      960         1280
 	//  ┌───────────┬────────────────────────┬───────────┐ 0
@@ -75,7 +132,7 @@ render :: proc(state: rawptr) {
 
 	render_code(
 		rl.Rectangle{x = 0, y = 0, width = CODE_WIDTH, height = cast(f32)screen_height},
-		&chip,
+		chip,
 	)
 
 	render_screen(
@@ -94,7 +151,7 @@ render :: proc(state: rawptr) {
 			width = CHIP8_WIDTH * SCALE,
 			height = cast(f32)(screen_height - CHIP8_HEIGHT * SCALE),
 		},
-		&chip,
+		chip,
 	)
 
 	render_state(
@@ -104,7 +161,7 @@ render :: proc(state: rawptr) {
 			width = cast(f32)screen_width - (CODE_WIDTH + CHIP8_WIDTH * SCALE),
 			height = cast(f32)screen_height,
 		},
-		&chip,
+		chip,
 	)
 
 }

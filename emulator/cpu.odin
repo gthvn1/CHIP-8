@@ -2,6 +2,11 @@ package emulator
 
 import "core:fmt"
 
+PROGRAM_START :: 0x200
+
+CHIP8_WIDTH :: 64
+CHIP8_HEIGHT :: 32
+
 Chip :: struct {
 	memory:      [4096]u8,
 	v:           [16]u8, // Data registers (8-bits)
