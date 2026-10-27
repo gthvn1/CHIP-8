@@ -2,6 +2,19 @@ package emulator
 
 import "core:fmt"
 
+Chip :: struct {
+	memory:      [4096]u8,
+	v:           [16]u8, // Data registers (8-bits)
+	i:           u16, // Address register (16-bits), 12 bits really used
+	delay_timer: u8,
+	sound_timer: u8,
+	keypad:      [16]bool, // accept input from a 16-key keypad, true is pressed, false otherwise
+	graphics:    [CHIP8_WIDTH * CHIP8_HEIGHT]bool, // a pixel is on or off
+	stack:       [16]u16, // Used for address (12-bits) so use u16. We need to store at least 12 addr.
+	pc:          u16, // Program counter (store addresses)
+	sp:          uint, // Stack pointer, an index in the stack
+}
+
 Opcode :: enum {
 	Unknown, // 0
 	Clear,
@@ -43,10 +56,10 @@ DECODER_RULES :: [?]Rule {
 	{0xF000, 0x7000, .Add}, // 7XNN
 }
 
-fetch :: proc(state: ^State) -> u16 {
+fetch :: proc(chip: ^Chip) -> u16 {
 	// Fetch the instruction under PC and update the PC.
-	hi := u16(state.memory[state.pc])
-	low := u16(state.memory[state.pc + 1])
+	hi := u16(chip.memory[chip.pc])
+	low := u16(chip.memory[chip.pc + 1])
 	return (hi << 8) | low
 }
 
@@ -72,17 +85,17 @@ decode :: proc(bin_insn: u16) -> (insn: Instruction) {
 	return
 }
 
-execute :: proc(insn: ^Instruction, state: ^State) {
+execute :: proc(insn: ^Instruction, chip: ^Chip) {
 	#partial switch insn.opcode {
 	case .Clear:
-		state.pc += 2
+		chip.pc += 2
 	case:
 		fmt.eprintln("Instruction not implemented")
 	}
 
 }
 
-disassemble :: proc(insn: ^Instruction, state: ^State, output: []u8) -> string {
+disassemble :: proc(insn: ^Instruction, chip: ^Chip, output: []u8) -> string {
 	switch insn.opcode {
 	case .Unknown:
 		return fmt.bprintf(output, "UNKN")
@@ -95,22 +108,22 @@ disassemble :: proc(insn: ^Instruction, state: ^State, output: []u8) -> string {
 	case .Call:
 		return fmt.bprintf(output, "CALL 0x%04x", insn.nnn)
 	case .Seq:
-		return fmt.bprintf(output, "SEQ V[%d]0x%x, 0x%x", insn.x, state.v[insn.x], insn.nn)
+		return fmt.bprintf(output, "SEQ V[%d]0x%x, 0x%x", insn.x, chip.v[insn.x], insn.nn)
 	case .Sneq:
-		return fmt.bprintf(output, "SNEQ V[%d]0x%x, 0x%x", insn.x, state.v[insn.x], insn.nn)
+		return fmt.bprintf(output, "SNEQ V[%d]0x%x, 0x%x", insn.x, chip.v[insn.x], insn.nn)
 	case .Sveq:
 		return fmt.bprintf(
 			output,
 			"SVEQ V[%d]0x%04x, V[%d]0x%04x",
 			insn.x,
-			state.v[insn.x],
+			chip.v[insn.x],
 			insn.y,
-			state.v[insn.y],
+			chip.v[insn.y],
 		)
 	case .Set:
-		return fmt.bprintf(output, "SET V[%d]0x%x, 0x%x", insn.x, state.v[insn.x], insn.nn)
+		return fmt.bprintf(output, "SET V[%d]0x%x, 0x%x", insn.x, chip.v[insn.x], insn.nn)
 	case .Add:
-		return fmt.bprintf(output, "ADD V[%d]0x%x, 0x%x", insn.x, state.v[insn.x], insn.nn)
+		return fmt.bprintf(output, "ADD V[%d]0x%x, 0x%x", insn.x, chip.v[insn.x], insn.nn)
 	}
 
 	return fmt.bprintf(output, "UNREACHABLE")

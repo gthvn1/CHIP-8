@@ -20,26 +20,17 @@ PROGRAM_START :: 0x200
 State :: struct {
 	// The magic and the size of the struct *MUST* stay first. It is used by on_reload to
 	// know if the struct has changed (it doesn't detect new order, only add/del fields)
-	magic:       int,
-	size:        int,
+	magic: int,
+	size:  int,
 	// CHIP-8 specific
-	memory:      [4096]u8,
-	v:           [16]u8, // Data registers (8-bits)
-	i:           u16, // Address register (16-bits), 12 bits really used
-	delay_timer: u8,
-	sound_timer: u8,
-	keypad:      [16]bool, // accept input from a 16-key keypad, true is pressed, false otherwise
-	graphics:    [CHIP8_WIDTH * CHIP8_HEIGHT]bool, // a pixel is on or off
-	stack:       [16]u16, // Used for address (12-bits) so use u16. We need to store at least 12 addr.
-	pc:          u16, // Program counter (store addresses)
-	sp:          uint, // Stack pointer, an index in the stack
+	chip:  Chip,
 }
 
 clear_state :: proc(state: ^State) {
 	state^ = State {
 		magic = MAGIC,
-		size  = size_of(State),
-		pc    = PROGRAM_START,
+		size = size_of(State),
+		chip = {pc = PROGRAM_START},
 		// All other fields are set to 0
 	}
 
@@ -58,12 +49,12 @@ clear_state :: proc(state: ^State) {
 	}
 	defer delete(roms)
 
-	copied := copy(state.memory[PROGRAM_START:], roms)
+	copied := copy(state.chip.memory[PROGRAM_START:], roms)
 	if copied < len(roms) {
 		fmt.eprintfln(
 			"Out of memory: roms size %d bytes while our memory is %d byte",
 			len(roms),
-			len(state.memory[PROGRAM_START:]),
+			len(state.chip.memory[PROGRAM_START:]),
 		)
 		return
 	}
@@ -139,14 +130,14 @@ begin_panel :: proc(
 	}
 }
 
-render_code :: proc(panel: rl.Rectangle, state: ^State) {
+render_code :: proc(panel: rl.Rectangle, chip: ^Chip) {
 	pen := begin_panel(panel, rl.GREEN, title = "Code")
 
 	// Let's print 50 line
 	for idx := PROGRAM_START; idx <= PROGRAM_START + 50; idx += 2 {
 		key := fmt.caprintf("0x%03x", idx)
-		val := fmt.caprintf("0x%02x%02x", state.memory[idx], state.memory[idx + 1])
-		if int(state.pc) == idx {
+		val := fmt.caprintf("0x%02x%02x", chip.memory[idx], chip.memory[idx + 1])
+		if int(chip.pc) == idx {
 			write_row(&pen, key, val, rl.WHITE)
 		} else {
 			write_row(&pen, key, val, rl.GREEN)
@@ -161,36 +152,36 @@ render_screen :: proc(panel: rl.Rectangle) {
 	begin_panel(panel, rl.WHITE)
 }
 
-render_debug :: proc(panel: rl.Rectangle, state: ^State) {
+render_debug :: proc(panel: rl.Rectangle, chip: ^Chip) {
 	pen := begin_panel(panel, rl.RED, title = "Debug")
 
 	// Don't fetch here, just decode the current instruction.
-	current_insn := (u16(state.memory[state.pc]) << 8) | u16(state.memory[state.pc + 1])
+	current_insn := (u16(chip.memory[chip.pc]) << 8) | u16(chip.memory[chip.pc + 1])
 	insn := decode(current_insn)
 
 	key := fmt.caprintf("0x%04x: ", insn.raw)
 	buf: [32]u8
 	// To ensure we have a null terminaed string we pass the buffer minus
 	// the last byte.
-	text := disassemble(&insn, state, buf[:len(buf) - 1])
+	text := disassemble(&insn, chip, buf[:len(buf) - 1])
 	write_row(&pen, key, cstring(raw_data(text)), rl.RED)
 	delete(key)
 }
 
-render_state :: proc(panel: rl.Rectangle, state: ^State) {
+render_state :: proc(panel: rl.Rectangle, chip: ^Chip) {
 	pen := begin_panel(panel, rl.GRAY, title = "State")
 
 	// Program counter & Stack counter & Address Register
 	{
-		pc := fmt.caprintf("0x%04x", state.pc)
+		pc := fmt.caprintf("0x%04x", chip.pc)
 		write_row(&pen, "PC", pc, rl.YELLOW)
 		delete(pc)
 
-		sp := fmt.caprintf("%d (max %d)", state.sp, len(state.stack))
+		sp := fmt.caprintf("%d (max %d)", chip.sp, len(chip.stack))
 		write_row(&pen, "SP", sp, rl.YELLOW)
 		delete(sp)
 
-		i := fmt.caprintf("0x%04x", state.i)
+		i := fmt.caprintf("0x%04x", chip.i)
 		write_row(&pen, "I", i, rl.YELLOW)
 		delete(i)
 	}
@@ -198,8 +189,8 @@ render_state :: proc(panel: rl.Rectangle, state: ^State) {
 	// Timer
 	blank_row(&pen)
 	{
-		delay_t := fmt.caprintf("%d", state.delay_timer)
-		sound_t := fmt.caprintf("%d", state.sound_timer)
+		delay_t := fmt.caprintf("%d", chip.delay_timer)
+		sound_t := fmt.caprintf("%d", chip.sound_timer)
 		write_row(&pen, "Delay", delay_t, rl.SKYBLUE)
 		write_row(&pen, "Sound", sound_t, rl.SKYBLUE)
 		delete(delay_t)
@@ -208,67 +199,11 @@ render_state :: proc(panel: rl.Rectangle, state: ^State) {
 
 	// Display data registers
 	blank_row(&pen)
-	for v, idx in state.v {
+	for v, idx in chip.v {
 		key := fmt.caprintf("V%X", idx)
 		val := fmt.caprintf("0x%02x", v)
 		write_row(&pen, key, val, rl.ORANGE)
 		delete(val)
 		delete(key)
 	}
-}
-
-@(export)
-render :: proc(state: rawptr) {
-	//  0          320                      960         1280
-	//  ┌───────────┬────────────────────────┬───────────┐ 0
-	//  │           │                        │           │
-	//  │  Code     │   Screen 64*32 (×10)   │  State    │
-	//  │  (desas.) │     640*320            │  V0..VF   │
-	//  │           │                        │  I, PC    │
-	//  │  320*720  ├────────────────────────┤  SP, pile │ 320
-	//  │           │                        │  timers   │
-	//  │           │   Debug/journal        │           │
-	//  │           │     640*400            │  320*720  │
-	//  │           │                        │           │
-	//  └───────────┴────────────────────────┴───────────┘ 720
-
-	screen_width := rl.GetScreenWidth()
-	screen_height := rl.GetScreenHeight()
-
-	rl.ClearBackground(rl.BLACK)
-
-	render_code(
-		rl.Rectangle{x = 0, y = 0, width = CODE_WIDTH, height = cast(f32)screen_height},
-		cast(^State)state,
-	)
-
-	render_screen(
-		rl.Rectangle {
-			x = CODE_WIDTH,
-			y = 0,
-			width = CHIP8_WIDTH * SCALE,
-			height = CHIP8_HEIGHT * SCALE,
-		},
-	)
-
-	render_debug(
-		rl.Rectangle {
-			x = CODE_WIDTH,
-			y = CHIP8_HEIGHT * SCALE,
-			width = CHIP8_WIDTH * SCALE,
-			height = cast(f32)(screen_height - CHIP8_HEIGHT * SCALE),
-		},
-		cast(^State)state,
-	)
-
-	render_state(
-		rl.Rectangle {
-			x = CODE_WIDTH + CHIP8_WIDTH * SCALE,
-			y = 0,
-			width = cast(f32)screen_width - (CODE_WIDTH + CHIP8_WIDTH * SCALE),
-			height = cast(f32)screen_height,
-		},
-		cast(^State)state,
-	)
-
 }
