@@ -108,14 +108,22 @@ decode :: proc(bin_insn: u16) -> (insn: Instruction) {
 	return
 }
 
-execute :: proc(insn: ^Instruction, chip: ^Chip) {
-	#partial switch insn.opcode {
-	case .Cls:
-		fmt.eprintln("TODO: clear the display")
-	case:
-		fmt.eprintln("Instruction not implemented")
-	}
+Exec_Error :: enum {
+	None,
+	Not_Implemented,
+	Unknown_Opcode,
+}
 
+execute :: proc(insn: ^Instruction, chip: ^Chip) -> Exec_Error {
+	#partial switch insn.opcode {
+	case .Unknown:
+		return .Unknown_Opcode
+	case .Ld_vx_byte:
+		chip.v[insn.x] = insn.nn
+		return .None
+	case:
+		return .Not_Implemented
+	}
 }
 
 disassemble :: proc(insn: ^Instruction, output: []u8) -> string {

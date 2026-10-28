@@ -105,10 +105,20 @@ render_debug :: proc(panel: rl.Rectangle, font: rl.Font, state: ^State) {
 	start := state.idx
 	end := state.idx + len(state.traces)
 	for idx in start ..< end {
-		addr := fmt.caprintf("0x%03x", state.traces[idx % len(state.traces)].addr)
-		text := cstring(raw_data(state.traces[idx % len(state.traces)].text[:]))
-		write_row(&pen, addr, text, rl.GRAY)
-		delete(addr)
+		trace := &state.traces[idx % len(state.traces)]
+
+		text := cstring(raw_data(trace.text[:]))
+		if len(text) == 0 {continue}
+
+		addr := fmt.caprintf("0x%03x", trace.addr)
+		defer delete(addr)
+
+		switch trace.type {
+		case .Error:
+			write_row(&pen, addr, text, rl.RED)
+		case .Insn:
+			write_row(&pen, addr, text, rl.GRAY)
+		}
 	}
 
 	// And print the current instruction, don't fetch here, just decode.

@@ -9,14 +9,29 @@ import rl "vendor:raylib"
 
 MAGIC :: 0xDECAFBAD
 
+Trace_Type :: enum {
+	Error,
+	Insn,
+}
 Trace_Entry :: struct {
+	type: Trace_Type,
 	addr: u16,
 	text: [32]u8,
 }
 
-trace_push :: proc(s: ^State, addr: u16, insn: ^Instruction) {
+trace_push_error :: proc(s: ^State, addr: u16, txt: string) {
+	slot := &s.traces[s.idx]
+	slot.type = .Error
+	slot.addr = addr
+	slot.text = {} // clean old text
+	copy_from_string(slot.text[:len(slot.text) - 1], txt)
+	s.idx = (s.idx + 1) % len(s.traces)
+}
+
+trace_push_insn :: proc(s: ^State, addr: u16, insn: ^Instruction) {
 	// Trace the instruction
 	slot := &s.traces[s.idx]
+	slot.type = .Insn
 	slot.addr = addr
 	slot.text = {} // clean old text
 	disassemble(insn, slot.text[:len(slot.text) - 1])
@@ -129,9 +144,16 @@ update :: proc(state: rawptr) {
 		insn := decode(opcode)
 
 		// Trace the instruction
-		trace_push(s, addr, &insn)
+		trace_push_insn(s, addr, &insn)
 
-		execute(&insn, &s.chip)
+		switch exec_err := execute(&insn, &s.chip); exec_err {
+		case .None:
+			{}
+		case .Not_Implemented:
+			trace_push_error(s, addr, "Exec failed: Not implemented")
+		case .Unknown_Opcode:
+			trace_push_error(s, addr, "Exec failed: Unknown opcode")
+		}
 	}
 }
 
