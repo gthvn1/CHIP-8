@@ -76,7 +76,7 @@ begin_panel :: proc(
 }
 
 render_code :: proc(panel: rl.Rectangle, font: rl.Font, chip: ^Chip) {
-	pen := begin_panel(panel, rl.GREEN, font, title = "Code")
+	pen := begin_panel(panel, rl.WHITE, font, title = "Code")
 
 	// Let's print 50 line
 	for idx := PROGRAM_START; idx <= PROGRAM_START + 50; idx += 2 {
@@ -93,7 +93,23 @@ render_code :: proc(panel: rl.Rectangle, font: rl.Font, chip: ^Chip) {
 	}
 }
 
-render_screen :: proc(panel: rl.Rectangle, font: rl.Font) {
+render_screen :: proc(panel: rl.Rectangle, font: rl.Font, chip: ^Chip) {
+	for x in 0 ..< CHIP8_WIDTH {
+		for y in 0 ..< CHIP8_HEIGHT {
+			wx := cast(i32)(x * SCALE) + cast(i32)(panel.x)
+			wy := cast(i32)(y * SCALE) + cast(i32)(panel.y)
+
+			if chip.graphics[x + y * CHIP8_WIDTH] {
+				// Pixel is ON
+				rl.DrawRectangle(wx, wy, SCALE, SCALE, rl.ORANGE)
+			} else {
+				// Pixel is OFF
+				rl.DrawRectangle(wx, wy, SCALE, SCALE, rl.BLACK)
+			}
+		}
+	}
+
+	// Draw the border after the graphics to not overwrite it.
 	begin_panel(panel, rl.WHITE, font)
 }
 
@@ -141,7 +157,7 @@ render_debug :: proc(panel: rl.Rectangle, font: rl.Font, state: ^State) {
 }
 
 render_state :: proc(panel: rl.Rectangle, font: rl.Font, chip: ^Chip) {
-	pen := begin_panel(panel, rl.GRAY, font, title = "State")
+	pen := begin_panel(panel, rl.WHITE, font, title = "State")
 
 	// Program counter & Stack counter & Address Register
 	{

@@ -150,9 +150,9 @@ update :: proc(state: rawptr) {
 		case .None:
 			{}
 		case .Not_Implemented:
-			trace_push_error(s, addr, "Exec failed: Not implemented")
+			trace_push_error(s, addr, "[ERR] Not implemented")
 		case .Unknown_Opcode:
-			trace_push_error(s, addr, "Exec failed: Unknown opcode")
+			trace_push_error(s, addr, "[ERR] failed: Unknown opcode")
 		}
 	}
 }
@@ -186,16 +186,6 @@ render :: proc(state: rawptr, font: rl.Font) {
 		chip,
 	)
 
-	render_screen(
-		rl.Rectangle {
-			x = CODE_WIDTH,
-			y = 0,
-			width = CHIP8_WIDTH * SCALE,
-			height = CHIP8_HEIGHT * SCALE,
-		},
-		font,
-	)
-
 	render_debug(
 		rl.Rectangle {
 			x = CODE_WIDTH,
@@ -213,6 +203,17 @@ render :: proc(state: rawptr, font: rl.Font) {
 			y = 0,
 			width = cast(f32)screen_width - (CODE_WIDTH + CHIP8_WIDTH * SCALE),
 			height = cast(f32)screen_height,
+		},
+		font,
+		chip,
+	)
+
+	render_screen(
+		rl.Rectangle {
+			x = CODE_WIDTH,
+			y = 0,
+			width = CHIP8_WIDTH * SCALE,
+			height = CHIP8_HEIGHT * SCALE,
 		},
 		font,
 		chip,

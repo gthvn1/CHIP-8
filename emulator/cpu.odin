@@ -118,6 +118,18 @@ execute :: proc(insn: ^Instruction, chip: ^Chip) -> Exec_Error {
 	#partial switch insn.opcode {
 	case .Unknown:
 		return .Unknown_Opcode
+	case .Add_vx_byte:
+		chip.v[insn.x] += insn.nn
+		return .None
+	case .Cls:
+		chip.graphics = {}
+		return .None
+	case .Jp_addr:
+		chip.pc = insn.nnn
+		return .None
+	case .Ld_i_addr:
+		chip.i = insn.nnn
+		return .None
 	case .Ld_vx_byte:
 		chip.v[insn.x] = insn.nn
 		return .None
