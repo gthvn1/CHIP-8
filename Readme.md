@@ -12,6 +12,7 @@ coding! A nice project to learn [Odin]!!!
   `./build.sh emu` and you should see the change live
 - For a full live experience you can run in a terminal: `ls emulator/*.odin | entr -c ./build.sh emu`.
 
+<img src="screenshots/ibm-logo.png" alt="CHIP-8 Emulator: IBM logo" />
 
 [CHIP-8]: https://chip-8.github.io/links/
 [Odin]: https://odin-lang.org/
