@@ -11,6 +11,11 @@ coding! A nice project to learn [Odin]!!!
 - And in another terminal modify the code in `emulator/`, rebuild it with
   `./build.sh emu` and you should see the change live
 - For a full live experience you can run in a terminal: `ls emulator/*.odin | entr -c ./build.sh emu`.
+- **Status**
+  - We have implemented instruction to display the IBM-logo
+  - We only have a step mode and a reset:
+    - press '<SPACE>' to execute a step
+    - press 'R' to reset the state (useful for hot reload)
 
 <img src="screenshots/ibm-logo.png" alt="CHIP-8 Emulator: IBM logo" />
 
