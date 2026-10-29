@@ -96,15 +96,15 @@ render_code :: proc(panel: rl.Rectangle, font: rl.Font, chip: ^Chip) {
 render_screen :: proc(panel: rl.Rectangle, font: rl.Font, chip: ^Chip) {
 	for x in 0 ..< CHIP8_WIDTH {
 		for y in 0 ..< CHIP8_HEIGHT {
-			wx := cast(i32)(x * SCALE) + cast(i32)(panel.x)
-			wy := cast(i32)(y * SCALE) + cast(i32)(panel.y)
+			win_x := cast(i32)(x * SCALE) + cast(i32)(panel.x)
+			win_y := cast(i32)(y * SCALE) + cast(i32)(panel.y)
 
-			if chip.graphics[x + y * CHIP8_WIDTH] {
+			if chip.graphics[pixel_index(cast(u16)x, cast(u16)y)] {
 				// Pixel is ON
-				rl.DrawRectangle(wx, wy, SCALE, SCALE, rl.ORANGE)
+				rl.DrawRectangle(win_x, win_y, SCALE, SCALE, rl.ORANGE)
 			} else {
 				// Pixel is OFF
-				rl.DrawRectangle(wx, wy, SCALE, SCALE, rl.BLACK)
+				rl.DrawRectangle(win_x, win_y, SCALE, SCALE, rl.BLACK)
 			}
 		}
 	}

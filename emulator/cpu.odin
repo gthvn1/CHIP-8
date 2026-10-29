@@ -20,6 +20,10 @@ Chip :: struct {
 	sp:          uint, // Stack pointer, an index in the stack
 }
 
+pixel_index :: proc(x, y: u16) -> u16 {
+	return x + y * CHIP8_WIDTH
+}
+
 Opcode :: enum {
 	Unknown, // 0
 	Cls, // Clear the display
@@ -32,7 +36,7 @@ Opcode :: enum {
 	Ld_vx_byte, // Set Vx = nn
 	Add_vx_byte, // Set Vx = Vx + nn
 	Ld_i_addr, // Set I = nnn
-	Drw_vx_vy_nibble, // Display n-byte sprite starting at memory location I at (Vx, Vy)
+	Drw_vx_vy_n, // Display n-byte sprite starting at memory location I at (Vx, Vy)
 }
 
 Instruction :: struct {
@@ -63,7 +67,7 @@ DECODER_RULES :: [?]Rule {
 	{0xF000, 0x6000, .Ld_vx_byte}, // 6xnn
 	{0xF000, 0x7000, .Add_vx_byte}, // 7xnn
 	{0xF000, 0xA000, .Ld_i_addr}, // Annn
-	{0xF000, 0xD000, .Drw_vx_vy_nibble}, // Dxyn
+	{0xF000, 0xD000, .Drw_vx_vy_n}, // Dxyn
 }
 
 read_opcode :: proc(chip: ^Chip, addr: u16) -> (opcode: u16, ok: bool) {
@@ -133,6 +137,53 @@ execute :: proc(insn: ^Instruction, chip: ^Chip) -> Exec_Error {
 	case .Ld_vx_byte:
 		chip.v[insn.x] = insn.nn
 		return .None
+	case .Drw_vx_vy_n:
+		// It draws a sprite of n bytes (width is always 8 pixels) starting at
+		// memory location I at (Vx, Vy).
+		// NOTE: Reference disagree on what happens at the screen edges.
+		// Cowgod's reference says the sprite wraps around to the opposite side.
+		// The original COSMAC VIP (and Timendus'test suite) does two different things:
+		//   - the starting position wraps: Vx/Vy are masked to the screen size,
+		//   - the drawing is clipped: pixels going past the right/bottom edge are not drawn.
+		// We follow the original behavior
+		x := cast(u16)chip.v[insn.x] % CHIP8_WIDTH
+		y := cast(u16)chip.v[insn.y] % CHIP8_HEIGHT
+
+		// Reset VF. Don't reset it before in case of X or Y is equal to 0xF...
+		chip.v[0xf] = 0
+
+		for idx in 0 ..< insn.n {
+			idx_16 := cast(u16)idx
+			row := chip.memory[chip.i + idx_16]
+
+			for p in 0 ..= 7 {
+				// Clipping, see the note above.
+				px := x + cast(u16)p
+				if px >= CHIP8_WIDTH {continue}
+				py := y + cast(u16)idx
+				if py >= CHIP8_HEIGHT {continue}
+
+				sprite_bit := row & (0b10000000 >> cast(uint)p)
+				old := chip.graphics[pixel_index(px, py)]
+
+				// Regarding the bit of the sprite, a value different from 0
+				// means we toggle the old value, 0 means we don't.
+				// A pixel erased will set VF to 1.
+				if sprite_bit != 0 {
+					// We switch
+					if old {
+						// old was on, erased it
+						chip.graphics[pixel_index(px, py)] = false
+						chip.v[0xf] = 1
+					} else {
+						// Just set the bit
+						chip.graphics[pixel_index(px, py)] = true
+					}
+				}
+				// else branch is we don't switch, so nothing to do
+			}
+		}
+		return .None
 	case:
 		return .Not_Implemented
 	}
@@ -162,7 +213,7 @@ disassemble :: proc(insn: ^Instruction, output: []u8) -> string {
 		return fmt.bprintf(output, "ADD V%X, 0x%02x", insn.x, insn.nn)
 	case .Ld_i_addr:
 		return fmt.bprintf(output, "LD I, 0x%03x", insn.nnn)
-	case .Drw_vx_vy_nibble:
+	case .Drw_vx_vy_n:
 		return fmt.bprintf(output, "DRW V%X, V%X, 0x%02x", insn.x, insn.y, insn.n)
 	}
 
